@@ -2,6 +2,8 @@
 
 A Sharkord plugin that lets OBS stream directly into a voice channel using the [WHIP protocol](https://www.rfc-editor.org/rfc/rfc9725).
 
+To install. Follow [THESE](https://sharkord.com/docs/plugins/installation) steps :).
+
 ---
 
 ## Setup
