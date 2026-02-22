@@ -1,4 +1,4 @@
-> ⚠️⚠️⚠️⚠️ **Use at your own risk!!** I do not claim to be an expert on video streaming/security. And yes i had to consult claude a number of times to get a handle on all the protocol stuff. Feedback is very welcome and you can create some pull requests.
+> ⚠️⚠️⚠️⚠️ **Use at your own risk!!** I do not claim to be an expert on video streaming/security. And yes i had to consult claude a number of times to get a handle on all the protocol stuff. Feedback is very welcome and of course you can create pull requests.
 
 # sharkord-whip
 
