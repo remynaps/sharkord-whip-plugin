@@ -20,6 +20,17 @@ import type {
 } from 'mediasoup/types';
 
 export type ParsedSdp = ReturnType<typeof parse>;
+export interface AnswerOptions {
+  parsedOffer: ParsedSdp;
+  iceParameters: IceParameters;
+  iceCandidates: IceCandidate[];
+  dtlsParameters: DtlsParameters;
+  announcedIp: string;
+}
+
+// sha-256 is what basically every WebRTC client expects. The others are fallbacks
+// in case mediasoup doesn't offer it (unlikely, but let's not crash over it).
+const FINGERPRINT_PREFERENCE = ['sha-256', 'sha-512', 'sha-384', 'sha-1'];
 
 /** Parse an SDP string once . pass the result to the extract/build functions below. */
 export function parseSdp(sdp: string): ParsedSdp {
@@ -101,18 +112,6 @@ export function extractRtpParameters(
     },
   };
 }
-
-export interface AnswerOptions {
-  parsedOffer: ParsedSdp;
-  iceParameters: IceParameters;
-  iceCandidates: IceCandidate[];
-  dtlsParameters: DtlsParameters;
-  announcedIp: string;
-}
-
-// sha-256 is what basically every WebRTC client expects. The others are fallbacks
-// in case mediasoup doesn't offer it (unlikely, but let's not crash over it).
-const FINGERPRINT_PREFERENCE = ['sha-256', 'sha-512', 'sha-384', 'sha-1'];
 
 export function buildSdpAnswer(opts: AnswerOptions): string {
   const { parsedOffer, iceParameters, iceCandidates, dtlsParameters, announcedIp } = opts;
