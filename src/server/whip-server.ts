@@ -29,7 +29,6 @@ interface Session {
   videoProducer?: Producer;
   streamHandle: TExternalStreamHandle;
 }
-
 type WhipSettings = PluginSettings<any>;
 
 // First some state stuff.
@@ -37,7 +36,6 @@ type WhipSettings = PluginSettings<any>;
 let server: ReturnType<typeof Bun.serve> | null = null;
 const sessions = new Map<string, Session>();
 
-// I was messing with some rate limit and auth stuff.
 // Rate limit: track failed attempts per IP
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 5;
@@ -78,11 +76,16 @@ function safeEqual(a: string, b: string): boolean {
   }
 }
 
-
 // Remove a session, close all the audio and video producers
 function cleanupSession(ctx: PluginContext, sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) return;
+
+  // Delete first — the close() calls below can synchronously fire producer/transport
+  // observer events which re-enter this function. Without this, all three listeners
+  // (audio observer, video observer, router) race in before anyone deletes the entry
+  // and cleanupSession runs three times on the same session.
+  sessions.delete(sessionId);
 
   try {
     session.audioProducer?.close();
@@ -93,7 +96,6 @@ function cleanupSession(ctx: PluginContext, sessionId: string) {
     ctx.error('WHIP: error during session cleanup:', err);
   }
 
-  sessions.delete(sessionId);
   ctx.log(`WHIP: session ${sessionId} cleaned up`);
 }
 
@@ -208,7 +210,6 @@ async function handleWhipOffer(
       );
     }
 
-    // getListenInfo() is async — must await
     const { ip: listenIp, announcedAddress } = await ctx.actions.voice.getListenInfo();
     const rawHost = announcedAddress ?? listenIp;
     const announcedHost = rawHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
@@ -230,11 +231,14 @@ async function handleWhipOffer(
     transport.on('icestatechange',  (state) => ctx.log(`WHIP [${transport.id}] ICE: ${state}`));
     transport.on('dtlsstatechange', (state) => ctx.log(`WHIP [${transport.id}] DTLS: ${state}`));
 
-    // Parse once — reused by extractDtlsParameters, extractRtpParameters, and buildSdpAnswer
     const parsedOffer = parseSdp(offerSdp);
 
     ctx.log(`WHIP: transport created, connecting DTLS...`);
-    await transport.connect({ dtlsParameters: extractDtlsParameters(parsedOffer) });
+    const obsDtlsParams = extractDtlsParameters(parsedOffer);
+    ctx.log(`WHIP: OBS fingerprint (theirs):  ${obsDtlsParams.fingerprints[0]?.algorithm} ${obsDtlsParams.fingerprints[0]?.value}`);
+    ctx.log(`WHIP: OBS DTLS role we assigned: ${obsDtlsParams.role}`);
+    ctx.log(`WHIP: our fingerprint (ours):    ${transport.dtlsParameters.fingerprints.find(f => f.algorithm === 'sha-256')?.value}`);
+    await transport.connect({ dtlsParameters: obsDtlsParams });
 
     // ---------------- Set up audio and video -------------------------
     // ---------------- Yes this is the main thingy --------------------
