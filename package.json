@@ -5,9 +5,9 @@
   "type": "module",
   "sharkord": {
     "entry": "index.js",
-    "author": "you",
+    "author": "remynaps",
     "description": "Stream OBS (or any WHIP client) directly into a Sharkord voice channel.",
-    "homepage": "https://github.com/you/sharkord-whip"
+    "homepage": "https://github.com/remynaps/sharkord-whip-plugin"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --minify --format esm && cp package.json dist/",
