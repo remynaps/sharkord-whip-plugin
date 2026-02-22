@@ -1,0 +1,328 @@
+/**
+ * whip-server.ts
+ *
+ * Runs a small Bun HTTP server implementing the WHIP protocol.
+ *
+ * Flow per OBS connection:
+ *   1. OBS sends POST /whip/:channelId  (SDP offer, Bearer stream-key)
+ *   2. We create a mediasoup WebRtcTransport on the channel's router
+ *   3. We connect it with OBS's DTLS params and produce audio+video
+ *   4. We call ctx.actions.voice.createStream() to inject into the channel
+ *   5. We respond 201 with our SDP answer
+ *   6. OBS sends DELETE /whip/:channelId/:sessionId to end the stream
+ */
+
+import type { PluginContext, PluginSettings, TExternalStreamHandle } from '@sharkord/plugin-sdk';
+import type { Producer, Transport } from 'mediasoup/types';
+import { randomUUID, timingSafeEqual } from 'crypto';
+import {
+  buildSdpAnswer,
+  extractDtlsParameters,
+  extractRtpParameters,
+  parseSdp,
+} from './sdp.ts';
+import { addOnceListener, corsResponse } from './util.ts';
+
+interface Session {
+  transport: Transport;
+  audioProducer?: Producer;
+  videoProducer?: Producer;
+  streamHandle: TExternalStreamHandle;
+}
+
+type WhipSettings = PluginSettings<any>;
+
+// First some state stuff.
+// The server itself and the sessions (for multiple streams)
+let server: ReturnType<typeof Bun.serve> | null = null;
+const sessions = new Map<string, Session>();
+
+// I was messing with some rate limit and auth stuff.
+// Rate limit: track failed attempts per IP
+const failedAttempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 60_000; // 1 minute
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = failedAttempts.get(ip);
+  if (!entry || now > entry.resetAt) return true;
+  return entry.count < MAX_ATTEMPTS;
+}
+
+function recordFailedAttempt(ip: string) {
+  const now = Date.now();
+  const entry = failedAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    failedAttempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+  } else {
+    entry.count++;
+  }
+}
+
+function clearFailedAttempts(ip: string) {
+  failedAttempts.delete(ip);
+}
+
+// Constant-time comparison to prevent timing attacks on the stream key
+function safeEqual(a: string, b: string): boolean {
+  try {
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    const maxLen = Math.max(ba.length, bb.length);
+    const pa = Buffer.concat([ba, Buffer.alloc(maxLen - ba.length)]);
+    const pb = Buffer.concat([bb, Buffer.alloc(maxLen - bb.length)]);
+    return timingSafeEqual(pa, pb) && ba.length === bb.length;
+  } catch {
+    return false;
+  }
+}
+
+
+// Remove a session, close all the audio and video producers
+function cleanupSession(ctx: PluginContext, sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  try {
+    session.audioProducer?.close();
+    session.videoProducer?.close();
+    session.transport.close();
+    session.streamHandle.remove();
+  } catch (err) {
+    ctx.error('WHIP: error during session cleanup:', err);
+  }
+
+  sessions.delete(sessionId);
+  ctx.log(`WHIP: session ${sessionId} cleaned up`);
+}
+
+function cleanupAllSessions(ctx: PluginContext) {
+  for (const sessionId of sessions.keys()) {
+    cleanupSession(ctx, sessionId);
+  }
+}
+
+// Actually start the WHIP server.
+// Only one endpoint with some different request types.
+// the main one is POST to register a new session
+export function startWhipServer(
+  ctx: PluginContext,
+  settings: WhipSettings,
+  rtpMinPort: number,
+  rtpMaxPort: number,
+) {
+  const port = settings.get('port') as number;
+
+  server = Bun.serve({
+    port,
+    async fetch(req) {
+      if (req.method === 'OPTIONS') {
+        return corsResponse(new Response(null, { status: 204 }));
+      }
+
+      const url = new URL(req.url);
+      const parts = url.pathname.split('/').filter(Boolean);
+
+      if (req.method === 'POST' && parts[0] === 'whip' && parts.length === 2) {
+        return corsResponse(
+          await handleWhipOffer(ctx, settings, req, parts[1]!, rtpMinPort, rtpMaxPort)
+        );
+      }
+
+      if (req.method === 'DELETE' && parts[0] === 'whip' && parts.length === 3) {
+        return corsResponse(handleWhipDelete(ctx, parts[2]!));
+      }
+
+      if (req.method === 'GET' && url.pathname === '/whip') {
+        return corsResponse(
+          new Response(
+            JSON.stringify({ status: 'ok', sessions: sessions.size }),
+            { headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+
+      return corsResponse(new Response('Not Found', { status: 404 }));
+    },
+  });
+
+  ctx.log(`WHIP server listening on port ${port}`);
+}
+
+export function stopWhipServer(ctx: PluginContext) {
+  cleanupAllSessions(ctx);
+  failedAttempts.clear();
+  server?.stop();
+  server = null;
+  ctx.log('WHIP server stopped');
+}
+
+async function handleWhipOffer(
+  ctx: PluginContext,
+  settings: WhipSettings,
+  req: Request,
+  channelIdStr: string,
+  rtpMinPort: number,
+  rtpMaxPort: number,
+): Promise<Response> {
+  const expectedKey = settings.get('stream_key') as string;
+  const auth = req.headers.get('Authorization') ?? '';
+  const providedKey = auth.startsWith('Bearer ') ? auth.slice(7) : auth;
+  const clientIp = req.headers.get('x-forwarded-for') ?? 'unknown';
+
+  if (expectedKey) {
+    if (!checkRateLimit(clientIp)) {
+      ctx.error(`WHIP: rate limit exceeded for ${clientIp}`);
+      return new Response('Too Many Requests', { status: 429 });
+    }
+    if (!safeEqual(providedKey, expectedKey)) {
+      recordFailedAttempt(clientIp);
+      ctx.error(`WHIP: rejected connection from ${clientIp} — wrong stream key`);
+      return new Response('Unauthorized', { status: 401 });
+    }
+    clearFailedAttempts(clientIp);
+  }
+
+  // Channel
+  const channelId = parseInt(channelIdStr, 10);
+  if (isNaN(channelId)) {
+    return new Response('Bad channel ID', { status: 400 });
+  }
+
+  // SDP offer
+  const offerSdp = await req.text();
+  if (!offerSdp.startsWith('v=0')) {
+    return new Response('Expected SDP offer body', { status: 400 });
+  }
+
+  ctx.log(`WHIP: incoming offer for channel ${channelId}`);
+
+  try {
+    const router = ctx.actions.voice.getRouter(channelId);
+    if (!router) {
+      return new Response(
+        `Voice channel ${channelId} has no active runtime. ` +
+          `Someone must be in the channel before you can stream into it.`,
+        { status: 503 }
+      );
+    }
+
+    // getListenInfo() is async — must await
+    const { ip: listenIp, announcedAddress } = await ctx.actions.voice.getListenInfo();
+    const rawHost = announcedAddress ?? listenIp;
+    const announcedHost = rawHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    ctx.log(`WHIP: listenIp=${listenIp} announcedHost=${announcedHost}`);
+
+    ctx.log(`WHIP: creating WebRtcTransport...`);
+    const transport = await router.createWebRtcTransport({
+      listenInfos: [
+        { protocol: 'udp', ip: '0.0.0.0', announcedAddress: announcedHost, portRange: { min: rtpMinPort, max: rtpMaxPort } },
+        { protocol: 'tcp', ip: '0.0.0.0', announcedAddress: announcedHost, portRange: { min: rtpMinPort, max: rtpMaxPort } },
+      ],
+      enableUdp: true,
+      enableTcp: true,
+      preferUdp: true,
+      enableSctp: false,
+    });
+    ctx.log(`WHIP: fingerprint algorithms: ${transport.dtlsParameters.fingerprints.map(f => f.algorithm).join(', ')}`);
+
+    transport.on('icestatechange',  (state) => ctx.log(`WHIP [${transport.id}] ICE: ${state}`));
+    transport.on('dtlsstatechange', (state) => ctx.log(`WHIP [${transport.id}] DTLS: ${state}`));
+
+    // Parse once — reused by extractDtlsParameters, extractRtpParameters, and buildSdpAnswer
+    const parsedOffer = parseSdp(offerSdp);
+
+    ctx.log(`WHIP: transport created, connecting DTLS...`);
+    await transport.connect({ dtlsParameters: extractDtlsParameters(parsedOffer) });
+
+    // ---------------- Set up audio and video -------------------------
+    // ---------------- Yes this is the main thingy --------------------
+    const audioRtpParams = extractRtpParameters(parsedOffer, 'audio');
+    let audioProducer: Producer | undefined;
+    if (audioRtpParams) {
+      audioProducer = await transport.produce({ kind: 'audio', rtpParameters: audioRtpParams });
+      ctx.debug(`WHIP: audio producer ${audioProducer.id}`);
+    }
+
+    const videoRtpParams = extractRtpParameters(parsedOffer, 'video');
+    let videoProducer: Producer | undefined;
+    if (videoRtpParams) {
+      videoProducer = await transport.produce({ kind: 'video', rtpParameters: videoRtpParams });
+      ctx.debug(`WHIP: video producer ${videoProducer.id}`);
+    }
+
+    if (!audioProducer && !videoProducer) {
+      transport.close();
+      return new Response('SDP offer contained no usable audio or video', { status: 400 });
+    }
+
+    const sessionId = randomUUID();
+    const streamHandle = ctx.actions.voice.createStream({
+      channelId,
+      title: 'OBS Stream',
+      key: sessionId,
+      producers: { audio: audioProducer, video: videoProducer },
+    });
+
+    sessions.set(sessionId, { transport, audioProducer, videoProducer, streamHandle });
+
+    // ---------------------- Setup finished -----------------------
+
+    ctx.log(
+      `WHIP: stream ${sessionId} started in channel ${channelId}` +
+        ` (audio=${!!audioProducer}, video=${!!videoProducer})`
+    );
+
+    // Tear down if the router closes (everyone left the voice channel)
+    addOnceListener(router, '@close', () => {
+      ctx.log(`WHIP: router closed for channel ${channelId}, cleaning up ${sessionId}`);
+      cleanupSession(ctx, sessionId);
+    });
+
+    // Tear down if either producer dies unexpectedly
+    if (audioProducer) {
+      addOnceListener(audioProducer.observer, 'close', () => {
+        cleanupSession(ctx, sessionId);
+      });
+    }
+    if (videoProducer) {
+      addOnceListener(videoProducer.observer, 'close', () => {
+        cleanupSession(ctx, sessionId);
+      });
+    }
+
+    const answerSdp = buildSdpAnswer({
+      parsedOffer,
+      iceParameters: transport.iceParameters,
+      iceCandidates: transport.iceCandidates,
+      dtlsParameters: transport.dtlsParameters,
+      announcedIp: announcedHost,
+    });
+
+    ctx.log('WHIP: ICE candidates offered to OBS:\n' +
+      transport.iceCandidates.map(c => `  ${c.protocol} ${c.ip}:${c.port} (${c.type})`).join('\n')
+    );
+    ctx.log('WHIP: SDP answer:\n' + answerSdp);
+
+    return new Response(answerSdp, {
+      status: 201,
+      headers: {
+        'Content-Type': 'application/sdp',
+        Location: `/whip/${channelId}/${sessionId}`,
+      },
+    });
+  } catch (err) {
+    ctx.error('WHIP: failed to set up stream:', err);
+    const msg = err instanceof Error ? err.message : JSON.stringify(err);
+    return new Response(`Stream setup failed: ${msg}`, { status: 500 });
+  }
+}
+
+function handleWhipDelete(ctx: PluginContext, sessionId: string): Response {
+  if (!sessions.has(sessionId)) {
+    return new Response('Session not found', { status: 404 });
+  }
+  cleanupSession(ctx, sessionId);
+  return new Response(null, { status: 200 });
+}

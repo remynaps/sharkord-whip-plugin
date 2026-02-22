@@ -1,0 +1,25 @@
+{
+  "name": "sharkord-whip",
+  "version": "0.0.1",
+  "module": "src/index.ts",
+  "type": "module",
+  "sharkord": {
+    "entry": "index.js",
+    "author": "you",
+    "description": "Stream OBS (or any WHIP client) directly into a Sharkord voice channel.",
+    "homepage": "https://github.com/you/sharkord-whip"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --minify --format esm && cp package.json dist/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "sdp-transform": "^2.14.1",
+    "mediasoup": "3.19.17",
+    "@sharkord/plugin-sdk": "*"
+    },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
