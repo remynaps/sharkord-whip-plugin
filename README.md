@@ -1,3 +1,5 @@
+> ⚠️⚠️⚠️⚠️ **Use at your own risk!!** I do not claim to be an expert on video streaming/security. And yes i had to consult claude a number of times to get a handle on all the protocol stuff. Feedback is very welcome and you can create some pull requests.
+
 # sharkord-whip
 
 A Sharkord plugin that lets OBS stream directly into a voice channel using the [WHIP protocol](https://www.rfc-editor.org/rfc/rfc9725).
