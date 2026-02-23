@@ -195,17 +195,27 @@ With the network path confirmed, OBS initiates a **DTLS handshake** — basicall
 
 ```
 OBS ──── ClientHello ─────────────────────────────────────▶ Sharkord
-         "here's my certificate"
+         "here's my certificate and cipher preferences"
 
-OBS ◀─── ServerHello + Certificate ───────────────────────── Sharkord
-         "here's our certificate"
+OBS ◀─── ServerHello + Certificate + HelloDone ────────────── Sharkord
+         "here's our certificate, let's use this cipher"
+
+OBS ──── Certificate + CertificateVerify ─────────────────▶ Sharkord
 
          Both sides verify the other's cert fingerprint matches
-         what was promised in the SDP exchange earlier.
-         (This prevents anyone from intercepting and pretending to be Sharkord.)
+         what was advertised in the SDP exchange. If they don't
+         match, a fatal alert is sent and the connection dies here.
 
-OBS ──── Finished ────────────────────────────────────────▶ Sharkord
+OBS ──── ChangeCipherSpec + Finished ─────────────────────▶ Sharkord
+OBS ◀─── ChangeCipherSpec + Finished ─────────────────────── Sharkord
                               ✓ encrypted tunnel established
+
+One important detail: our SDP answer says setup:passive, which means
+OBS must send the first ClientHello. If this is misconfigured (e.g. both
+sides think the other should go first), OBS sends a fatal alert:
+unexpected_message (code 10) and the connection dies in under a second.
+The role field passed to transport.connect() is the *remote's* role —
+passing 'client' means "OBS initiates", which is what we want.
 ```
 
 This is why the fingerprints in the SDP matter — they're how both sides confirm they're talking to the right server, not some eavesdropper in between.
@@ -293,7 +303,7 @@ t=100ms   Tinkywinky's friends can see his stream
 | **SDP** | A plain text format for describing a media session — codecs, ports, security keys. Not a streaming protocol itself, just a negotiation document. |
 | **ICE** | The process of finding a working network path between two peers. Involves sending test packets (STUN) and confirming they arrive. Handles NATs and firewalls. |
 | **STUN** | Tiny test packets used during ICE to check if a network path is alive and to discover your public IP/port from behind NAT. |
-| **DTLS** | Encryption for UDP (RFC 6347). Like TLS/HTTPS but designed for unreliable packets. Sets up the encrypted tunnel before media flows. |
+| **DTLS** | Encryption for UDP (RFC 6347). Like TLS/HTTPS but designed for unreliable packets. Sets up the encrypted tunnel before media flows. The `setup` attribute in SDP negotiates who sends the first ClientHello — `passive` means we wait for OBS to go first. |
 | **SRTP** | Encrypted RTP — the actual video and audio packets once DTLS has negotiated the keys. |
 | **RTP** | The packet format for real-time media (RFC 3550). Each packet has a sequence number, timestamp, and SSRC. Large frames are split across multiple packets; the receiver reassembles them using the sequence number and the marker bit on the last packet. |
 | **RTCP** | Control packets that ride alongside RTP (also RFC 3550). Flows both ways — OBS sends timing info (Sender Reports), we send feedback like PLI (request a keyframe) or NACK (request a retransmit). |
@@ -303,7 +313,7 @@ t=100ms   Tinkywinky's friends can see his stream
 | **Router** | mediasoup's representation of a voice channel. Knows about all participants and routes media between them. Dies when the last person leaves. |
 | **Transport** | A network connection in mediasoup. Allocates a port and handles ICE + DTLS for one peer (OBS in our case). |
 | **Producer** | An incoming media stream in mediasoup. One per track — one for OBS's audio, one for OBS's video. |
-| **Consumer** | An outgoing media stream in mediasoup. Sharkord creates one for each person in the channel who needs to receive Tinkywinky's stream. Our plugin doesn't create these — Sharkord handles it. |
+| **Consumer** | An outgoing media stream in mediasoup. Sharkord creates one for each person in the channel who needs to receive Tom's stream. Our plugin doesn't create these — Sharkord handles it. |
 | **ice-lite** | A simplified ICE mode (RFC 8445 §17.3) where the server only responds to checks, never sends them first. mediasoup always runs in ice-lite mode. |
 | **PLI** | Picture Loss Indication — a RTCP message from server to OBS saying "I lost data, please send a full keyframe so I can resync." |
 | **NACK** | Negative Acknowledgement — a RTCP message saying "I didn't receive packet #1042, please resend it." |

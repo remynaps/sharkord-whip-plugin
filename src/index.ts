@@ -56,7 +56,7 @@ const onLoad = async (ctx: PluginContext) => {
   const rtpMaxPort = settings.get('rtp_max_port') as number;
 
   // ----------------------------------------------------------------------------
-  // -------------------- Settings to register in sharkord-----------------------
+  // -------------------- Commands to register in sharkord-----------------------
   // ----------------------------------------------------------------------------
   ctx.commands.register<{ channel_id?: number }>({
     name: 'whip_info',

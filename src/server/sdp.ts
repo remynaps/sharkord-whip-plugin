@@ -4,7 +4,7 @@
  * Converts between OBS's SDP offer and mediasoup transport parameters,
  * and builds the SDP answer we send back to OBS.
  *
- * All exported functions take a pre-parsed SDP object call parseSdp() once
+ * All exported functions take a pre-parsed SDP object . call parseSdp() once
  * and pass the result around instead of re-parsing the same string repeatedly.
  */
 
@@ -20,7 +20,6 @@ import type {
 } from 'mediasoup/types';
 
 export type ParsedSdp = ReturnType<typeof parse>;
-
 export interface AnswerOptions {
   parsedOffer: ParsedSdp;
   iceParameters: IceParameters;
@@ -33,7 +32,7 @@ export interface AnswerOptions {
 // in case mediasoup doesn't offer it (unlikely, but let's not crash over it).
 const FINGERPRINT_PREFERENCE = ['sha-256', 'sha-512', 'sha-384', 'sha-1'];
 
-/** Parse an SDP string once. pass the result to the extract/build functions below. */
+/** Parse an SDP string once . pass the result to the extract/build functions below. */
 export function parseSdp(sdp: string): ParsedSdp {
   return parse(sdp);
 }
@@ -43,14 +42,18 @@ export function extractDtlsParameters(parsed: ParsedSdp): DtlsParameters {
   const fp = media?.fingerprint ?? parsed.fingerprint;
   if (!fp) throw new Error('No DTLS fingerprint in SDP offer');
 
-  // mediasoup role = OUR role in the DTLS handshake.
-  // We always answer 'passive', meaning OBS knocks and we open the door.
-  //   OBS offer 'active'  → OBS knocks → we open → we are 'server'
-  //   OBS offer 'passive' → OBS waits  → we knock → we are 'client'
-  //   OBS offer 'actpass' → we picked 'passive' → OBS knocks → we are 'server'
+  // The role field here is the REMOTE's (OBS's) role, not ours.
+  // mediasoup uses it to decide whether to initiate or wait:
+  //   role: 'client' → remote initiates → mediasoup waits (acts as server)
+  //   role: 'server' → remote waits     → mediasoup initiates (acts as client)
+  //
+  // Our SDP answer always says setup:passive, so OBS initiates toward us.
+  //   OBS offer 'active'  → OBS initiates → OBS is client → pass 'client'
+  //   OBS offer 'actpass' → we chose passive → OBS initiates → OBS is client → pass 'client'
+  //   OBS offer 'passive' → OBS waits → OBS is server → pass 'server' (mediasoup initiates)
   const setupAttr = media?.setup ?? parsed.setup ?? 'actpass';
   const role: DtlsParameters['role'] =
-    setupAttr === 'passive' ? 'client' : 'server';
+    setupAttr === 'passive' ? 'server' : 'client';
 
   return {
     role,
@@ -83,7 +86,7 @@ export function extractRtpParameters(
 
   const ssrcLine = media.ssrcs?.[0];
   const encodings: RtpParameters['encodings'] = [
-    // SSRC is basically a stream ID, OBS puts it in the offer, we just echo it back.
+    // SSRC is basically a stream ID . OBS puts it in the offer, we just echo it back.
     // If it's missing for some reason, a random one works fine.
     { ssrc: ssrcLine?.id ?? randomInt(0xffffffff) },
   ];
@@ -104,7 +107,7 @@ export function extractRtpParameters(
       // CNAME is just a human-readable sender label used in RTCP reports.
       // We grab it from the offer if it's there, otherwise slap a default on it.
       cname: ssrcLine?.attribute === 'cname' ? String(ssrcLine.value) : 'obs-stream',
-      // Smaller RTCP packets standard WebRTC behaviour, no reason to change it.
+      // Smaller RTCP packets . standard WebRTC behaviour, no reason to change it.
       reducedSize: true,
     },
   };
@@ -122,14 +125,14 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
 
   const candidateLines = iceCandidates.map((c, idx) => ({
     // foundation is supposed to group candidates that share a base IP.
-    // mediasoup doesn't expose it so we just use the index works fine in practice.
+    // mediasoup doesn't expose it so we just use the index . works fine in practice.
     foundation: String(idx + 1),
     component: 1,           // 1 = RTP, 2 = RTCP. Always 1 since we mux RTCP onto the RTP port.
     transport: c.protocol.toUpperCase(),
     priority: c.priority,
     ip: c.ip,
     port: c.port,
-    type: c.type,           // 'host' | 'srflx' | 'relay' mediasoup gives us 'host'
+    type: c.type,           // 'host' | 'srflx' | 'relay' . mediasoup gives us 'host'
     ...(c.tcpType ? { tcptype: c.tcpType } : {}),
   }));
 
@@ -149,16 +152,16 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
 
   const mediaAnswers = parsedOffer.media.map((offerMedia: MediaDescription) => ({
     type: offerMedia.type,
-    // Port 7 is the RFC discard port a standard WebRTC trick meaning
-    // "ignore this port, look at the ICE candidates instead." OBS knows what it means.
-    port: 7,
-    protocol: 'UDP/TLS/RTP/SAVPF',  // encrypted RTP with feedback the standard WebRTC stack
+    // Port 9 is the conventional WebRTC discard placeholder . standard across JSEP (RFC 9429)
+    // and WHIP (RFC 9725). Means "ignore this, look at the ICE candidates instead."
+    port: 9,
+    protocol: 'UDP/TLS/RTP/SAVPF',  // encrypted RTP with feedback . the standard WebRTC stack
     payloads: (offerMedia.rtp ?? []).map((r) => r.payload).join(' '),
     connection: { version: 4, ip: announcedIp },
     ...sharedIce,
     ...sharedDtls,
     mid: offerMedia.mid,
-    // recvonly — we're a sink, not a source. We take OBS's stream, we don't send anything back.
+    // recvonly . we're a sink, not a source. We take OBS's stream, we don't send anything back.
     direction: 'recvonly',
     rtp: offerMedia.rtp,
     // Port 9 is another discard placeholder. Doesn't matter because rtcp-mux
@@ -170,11 +173,11 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
     candidates: candidateLines,
     // Tell OBS we're done listing candidates upfront (no trickle ICE).
     endOfCandidates: 'end-of-candidates',
-    // RTCP rides on the same port as RTP one less port to worry about.
+    // RTCP rides on the same port as RTP . one less port to worry about.
     rtcpMux: 'rtcp-mux',
-    // Smaller RTCP packets same as above, standard WebRTC stuff.
+    // Smaller RTCP packets . same as above, standard WebRTC stuff.
     rtcpRsize: 'rtcp-rsize',
-    // We're recvonly so we have no outgoing stream to describe leave this empty.
+    // We're recvonly so we have no outgoing stream to describe . leave this empty.
     ssrcs: [],
   }));
 
@@ -187,7 +190,7 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
     version: 0,
     origin: {
       username: '-',
-      sessionId: Date.now(),  // just needs to be unique. timestamp does the job
+      sessionId: Date.now(),  // just needs to be unique . timestamp does the job
       sessionVersion: 1,
       netType: 'IN',          // 'IN' = Internet. It's the only valid value, basically just boilerplate.
       ipVer: 4,
@@ -195,13 +198,13 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
     },
     name: '-',                // required by the SDP spec, content is irrelevant
     timing: { start: 0, stop: 0 },  // 0/0 means the session never expires
-    // ice-lite means we sit back and respond to OBS's ICE checks, we never send our own.
+    // ice-lite means we sit back and respond to OBS's ICE checks . we never send our own.
     // mediasoup always works this way, and we need to say so or OBS will wait forever
     // for checks that are never coming.
     icelite: 'ice-lite',
     fingerprint: { type: fingerprint.algorithm, hash: fingerprint.value },
     groups,
-    // WMS boilerplate WebRTC requires it, content doesn't matter.
+    // WMS boilerplate . WebRTC requires it, content doesn't matter.
     msidSemantic: { semantic: 'WMS', token: '' },
     media: mediaAnswers,
   } as Parameters<typeof write>[0]);
