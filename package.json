@@ -4,7 +4,10 @@
   "module": "src/index.ts",
   "type": "module",
   "sharkord": {
-    "entry": "index.js",
+    "entry": {
+      "client": "index.js",
+      "server": "index.js"
+    },
     "author": "remynaps",
     "description": "Stream OBS (or any WHIP client) directly into a Sharkord voice channel.",
     "homepage": "https://github.com/remynaps/sharkord-whip-plugin"
