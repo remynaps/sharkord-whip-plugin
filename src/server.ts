@@ -33,6 +33,7 @@ const onLoad = async (ctx: PluginContext) => {
         'Set this as the Bearer Token in OBS.',
       type: 'string',
       defaultValue: 'changeme',
+      sensitive: true
     },
     {
       key: 'rtp_min_port',
@@ -115,11 +116,16 @@ const onLoad = async (ctx: PluginContext) => {
     },
   });
 
+  ctx.log('sharkord-whip: Setting up UI components....');
+  ctx.ui.enable();
+  ctx.log('sharkord-whip: UI registered');
+
   ctx.log('sharkord-whip: ready ✔ (run /whip_start to begin accepting streams)');
 };
 
 const onUnload = (ctx: PluginContext) => {
   stopWhipServer(ctx);
+  stopStatsServer(ctx);
   ctx.log('sharkord-whip: unloaded');
 };
 

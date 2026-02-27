@@ -22,13 +22,9 @@ import {
   parseSdp,
 } from './sdp.ts';
 import { addOnceListener, corsResponse } from './util.ts';
+import type { Session } from '../types/session.ts';
+import type { SessionStats, TrackStats } from '../types/session-stats.ts';
 
-interface Session {
-  transport: Transport;
-  audioProducer?: Producer;
-  videoProducer?: Producer;
-  streamHandle: TExternalStreamHandle;
-}
 type WhipSettings = PluginSettings<any>;
 
 // First some state stuff.
@@ -125,7 +121,7 @@ export function startWhipServer(
 
       const url = new URL(req.url);
       const parts = url.pathname.split('/').filter(Boolean);
-
+      ctx.log(`WHIP: ${req.method} ${url.pathname}`);
       if (req.method === 'POST' && parts[0] === 'whip' && parts.length === 2) {
         return corsResponse(
           await handleWhipOffer(ctx, settings, req, parts[1]!, rtpMinPort, rtpMaxPort)
@@ -145,6 +141,19 @@ export function startWhipServer(
         );
       }
 
+       // Stats endpoint — no auth, read-only and not sensitive
+      if (req.method === 'GET' && parts[0] === 'whip' && parts[1] === 'stats' && parts.length === 3) {
+        const channelId = parseInt(parts[2]!);
+        if (isNaN(channelId)) {
+          return corsResponse(new Response('Bad Request', { status: 400 }));
+        }
+        const stats = await getChannelStats(channelId);
+        return corsResponse(
+          new Response(JSON.stringify(stats), {
+            headers: { 'Content-Type': 'application/json' },
+          })
+        );
+      }
       return corsResponse(new Response('Not Found', { status: 404 }));
     },
   });
@@ -287,7 +296,7 @@ async function handleWhipOffer(
       producers: { audio: audioProducer, video: videoProducer },
     });
 
-    sessions.set(sessionId, { transport, audioProducer, videoProducer, streamHandle });
+    sessions.set(sessionId, { channelId, transport, audioProducer, videoProducer, streamHandle });
 
     // ---------------------- Setup finished -----------------------
 
@@ -347,4 +356,68 @@ function handleWhipDelete(ctx: PluginContext, sessionId: string): Response {
   }
   cleanupSession(ctx, sessionId);
   return new Response(null, { status: 200 });
+}
+
+
+//           .--------._
+//          (`--'       `-.
+//           `.______      `.
+//        ___________`__     \
+//     ,-'           `-.\     |
+//    //                \|    |\
+//   (`  .'~~~~~---\     \'   | |
+//    `-'           )     \   | |
+//       ,---------' - -.  `  . '
+//     ,'             `%`\`     |
+//    /                      \  |
+//   /     \-----.         \    `
+//  /|  ,_/      '-._            |
+// (-'  /           /            `     (Joshua Bell)
+// ,`--<           |        \     \
+// \ |  \         /%%             `\
+//  |/   \____---'--`%        \     \
+//  |    '           `               \
+//  |
+//   `--.__
+//         `---._______
+//                     `.
+//                       \
+// Get some very cool stats from the stream.
+// Well we're not decoding anything. So we dont actually know things like fps and resolution but still.
+export async function getChannelStats(channelId: number): Promise<SessionStats[]> {
+  const results: SessionStats[] = [];
+
+  for (const [sessionId, session] of sessions) {
+    if (session.channelId !== channelId) continue;
+
+    const tracks: TrackStats[] = [];
+
+    for (const producer of [session.audioProducer, session.videoProducer]) {
+      if (!producer) continue;
+      const stats = await producer.getStats();
+      const s = stats[0];
+      if (!s) continue;
+
+      const kind = producer.kind;
+      tracks.push({
+        kind,
+        mimeType: s.mimeType ?? (kind === 'audio' ? 'audio/opus' : 'video/h264'),
+        bitrate: Math.round((s.bitrate ?? 0) / 1000),
+        packetsLost: s.packetsLost ?? 0,
+        fractionLost: s.fractionLost != null ? Math.round((s.fractionLost / 255) * 100 * 10) / 10 : 0,
+        jitter: s.jitter != null ? Math.round(s.jitter * 1000) : 0,
+        score: s.score ?? 0,
+        roundTripTime: s.roundTripTime != null ? Math.round(s.roundTripTime * 1000) : 0,
+        nackCount: s.nackCount ?? 0,
+        ...(kind === 'video' ? {
+          pliCount: s.pliCount ?? 0,
+          firCount: s.firCount ?? 0,
+        } : {}),
+      });
+    }
+
+    results.push({ sessionId, channelId, tracks });
+  }
+
+  return results;
 }

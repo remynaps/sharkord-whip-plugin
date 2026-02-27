@@ -5,24 +5,34 @@
   "type": "module",
   "sharkord": {
     "entry": {
-      "client": "index.js",
-      "server": "index.js"
+      "client": "client.js",
+      "server": "server.js"
     },
     "author": "remynaps",
     "description": "Stream OBS (or any WHIP client) directly into a Sharkord voice channel.",
     "homepage": "https://github.com/remynaps/sharkord-whip-plugin"
   },
+  "bun-create": {
+    "preinstall": "echo 'Installing plugin-example...'",
+    "postinstall": [
+      "echo 'Done. Make sure you have the @sharkord/plugin-sdk AND @sharkord/ui packages linked. Read the docs for more info: https://sharkord.com/docs/plugins/overview'"
+    ]
+  },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --minify --format esm && cp package.json dist/",
-    "typecheck": "tsc --noEmit"
+    "build": "NODE_ENV=production bun build.ts",
+    "build:dev": "bun run build && cp -r dist/* /home/martino/repos/sharkord/apps/server/data/plugins/"
   },
   "dependencies": {
     "sdp-transform": "^2.14.1",
-    "mediasoup": "3.19.17",
-    "@sharkord/plugin-sdk": "*"
+    "mediasoup": "3.19.17"
     },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@types/react": "^19.2.14"
+  },
+  "peerDependencies": {
+    "typescript": "^5",
+    "react": "^19"
   }
 }
