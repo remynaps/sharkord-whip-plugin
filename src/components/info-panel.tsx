@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { type TPluginSlotContext } from "@sharkord/plugin-sdk";
-import { Button, Popover, PopoverContent, PopoverTrigger } from "@sharkord/ui";
+import { Badge, Button, Icon, IconButton, Popover, PopoverContent, PopoverTrigger } from "@sharkord/ui";
 import type { SessionStats, TrackStats } from "../types/session-stats.ts";
+import { Tv, Video, AudioWaveform } from 'lucide-react';
 
 const WhipInfoPanel = ({ selectedChannelId, currentVoiceChannelId }: TPluginSlotContext) => {
-  const STATS_URL = (channelId: number) =>
+  const SERVER_STATS_URL = (channelId: number) =>
   `${window.location.protocol}//${window.location.hostname}/whip/stats/${channelId}`;
   
   const [open, setOpen] = useState(false);
@@ -21,8 +22,9 @@ const WhipInfoPanel = ({ selectedChannelId, currentVoiceChannelId }: TPluginSlot
     }
     const poll = async () => {
       try {
-        const res = await fetch(STATS_URL(targetChannelId));
-        if (res.ok) setStats(await res.json());
+        const res = await fetch(SERVER_STATS_URL(targetChannelId));
+        const parsed: SessionStats[] = await res.json() as SessionStats[];
+        if (res.ok) setStats(parsed);
         else setStats([]);
       } catch {
         setStats([]);
@@ -33,17 +35,16 @@ const WhipInfoPanel = ({ selectedChannelId, currentVoiceChannelId }: TPluginSlot
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [open, targetChannelId]);
 
+  // It doesnt really make sense to see a stats button if no channel has been selected..
+  if (selectedChannelId === null || selectedChannelId === undefined) return null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className={isLive ? "text-green-400" : ""}>
-          {isLive ? "🔴" : "📡"} Stream
-        </Button>
+        <IconButton icon={Tv} color={isLive ? 'Red' : 'green'}></IconButton>
       </PopoverTrigger>
 
       <PopoverContent className="w-80 p-4" align="end">
         <div className="flex items-center gap-2 mb-3">
-          {isLive && <LiveDot />}
           <h2 className="font-semibold text-sm">
             {isLive ? "Live Stream" : "Stream"}
           </h2>
@@ -59,8 +60,6 @@ const WhipInfoPanel = ({ selectedChannelId, currentVoiceChannelId }: TPluginSlot
 };
 
 export { WhipInfoPanel };
-
-// ─── Stats ────────────────────────────────────────────────────────────────────
 
 function SessionStatsPanel({ session }: { session: SessionStats }) {
   const video = session.tracks.find((t) => t.kind === "video");
@@ -84,9 +83,9 @@ function TrackStatsPanel({ track }: { track: TrackStats }) {
   return (
     <div className="mb-3">
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-        {isVideo ? "🎬" : "🎙"} {codec}
+        {isVideo ? <Icon icon={Video}></Icon> : <Icon icon={AudioWaveform}></Icon>} {codec}
       </p>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 bg-muted rounded-md px-3 py-2">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-muted rounded-md px-3 py-2">
         <Stat label="Bitrate" value={`${track.bitrate} kbps`} />
         <Stat label="Quality" value={`${track.score}/10`} valueClass={scoreColor} />
         <Stat
@@ -120,13 +119,8 @@ function Stat({ label, value, valueClass }: { label: string; value: string; valu
   return (
     <div className="flex justify-between items-center text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className={`font-medium tabular-nums ${valueClass ?? "text-foreground"}`}>{value}</span>
+      <span className={`font-medium tabular-nums ${valueClass ?? "text-foreground"}`}>  {value}
+</span>
     </div>
-  );
-}
-
-function LiveDot() {
-  return (
-    <span className="inline-block w-2 h-2 rounded-full bg-red-400 shadow-[0_0_0_3px_rgba(248,113,113,0.3)] animate-pulse" />
   );
 }

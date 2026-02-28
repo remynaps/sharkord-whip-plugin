@@ -141,8 +141,12 @@ export function startWhipServer(
         );
       }
 
-       // Stats endpoint — no auth, read-only and not sensitive
+      // Stats endpoint. Only available when expose_stats is enabled in settings.
+      // This endpoint returns streamer info. so i dont want it to be enabled by default
       if (req.method === 'GET' && parts[0] === 'whip' && parts[1] === 'stats' && parts.length === 3) {
+        if (!settings.get('expose_stats')) {
+          return corsResponse(new Response('Not Found', { status: 404 }));
+        }
         const channelId = parseInt(parts[2]!);
         if (isNaN(channelId)) {
           return corsResponse(new Response('Bad Request', { status: 400 }));
@@ -383,6 +387,7 @@ function handleWhipDelete(ctx: PluginContext, sessionId: string): Response {
 //                     `.
 //                       \
 // Get some very cool stats from the stream.
+// Note: this is the server side stream. so only info from the person streaming is shown here.
 // Well we're not decoding anything. So we dont actually know things like fps and resolution but still.
 export async function getChannelStats(channelId: number): Promise<SessionStats[]> {
   const results: SessionStats[] = [];
