@@ -1,5 +1,3 @@
-> ⚠️ Firefox is (maybe??) not supported as a viewer. Firefox's WebRTC stack handles certain RTCP feedback messages differently and tends to stall on the DTLS handshake with ice-lite servers. Chromium-based browsers work fine. PRs welcome if you figure it out.
-
 # sharkord-whip
 <img src="./media/no-stream.gif" width="600" height="200" />
 
