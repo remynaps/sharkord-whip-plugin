@@ -1,9 +1,3 @@
-/**
- * index.ts  —  sharkord-whip
- *
- * Adds a WHIP ingest endpoint to Sharkord so OBS can stream directly into
- * a voice channel. Exposes the URL + stream key via a TOPBAR_RIGHT button.
- */
 import type { PluginContext } from '@sharkord/plugin-sdk';
 import { startWhipServer, stopWhipServer } from './server/whip-server.ts';
 
@@ -11,9 +5,9 @@ const onLoad = async (ctx: PluginContext) => {
   ctx.log('sharkord-whip: loading...');
 
   // Just a flag to make sure the server doesnt start multiple times if someone (me) spams the start command
-  // TODO: is there i nicer way to do this????
+  // TODO: is there a nicer way to do this????
   let serverStarted = false;
-
+  
   // ----------------------------------------------------------------------------
   // -------------------- Settings to register in sharkord-----------------------
   // ----------------------------------------------------------------------------
@@ -48,10 +42,24 @@ const onLoad = async (ctx: PluginContext) => {
       type: 'number',
       defaultValue: 40020,
     },
+    {
+      key: 'max_streams',
+      name: 'Max Concurrent Streams',
+      description:
+        'Maximum number of simultaneous OBS streams allowed. 0 = unlimited.',
+      type: 'number',
+      defaultValue: 5,
+    },
+    {
+      key: 'stream_name',
+      name: 'Default stream name',
+      description:
+        'The default name for a stream appearing in the ui',
+      type: 'string',
+      defaultValue: 'OBS stream',
+    },
   ] as const);
 
-  const whipPort = settings.get('port') as number;
-  const whipKey = settings.get('stream_key') as string;
   const rtpMinPort = settings.get('rtp_min_port') as number;
   const rtpMaxPort = settings.get('rtp_max_port') as number;
 
@@ -72,12 +80,18 @@ const onLoad = async (ctx: PluginContext) => {
     ],
     executes: async (invoker, args) => {
       const channelId = args.channel_id ?? invoker.currentVoiceChannelId;
-      const { ip, announcedAddress } = ctx.actions.voice.getListenInfo();
-      const host = announcedAddress ?? ip;
 
       if (!channelId) {
         throw new Error('Join a voice channel first, or pass a channel_id.');
       }
+
+      // Read settings fresh each time so changes take effect without a reload
+      const whipPort = settings.get('port') as number;
+      const whipKey  = settings.get('stream_key') as string;
+
+      // getListenInfo is async — await it or host/ip will be undefined
+      const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
+      const host = announcedAddress ?? ip;
 
       return [
         '**OBS Settings → Stream → Service: WHIP**',
@@ -87,7 +101,6 @@ const onLoad = async (ctx: PluginContext) => {
     },
   });
 
-
   // yes i like emojis
   ctx.commands.register({
     name: 'whip_start',
@@ -96,6 +109,7 @@ const onLoad = async (ctx: PluginContext) => {
       if (serverStarted) {
         return '⚠️ WHIP server is already running.';
       }
+      const whipPort = settings.get('port') as number;
       startWhipServer(ctx, settings, rtpMinPort, rtpMaxPort);
       serverStarted = true;
       return `✅ WHIP server started on port ${whipPort} (RTP range ${rtpMinPort}-${rtpMaxPort}).`;
@@ -111,7 +125,7 @@ const onLoad = async (ctx: PluginContext) => {
       }
       stopWhipServer(ctx);
       serverStarted = false;
-      return '✅ WHIP server stopped — all streams ended.';
+      return '✅ WHIP server stopped';
     },
   });
 

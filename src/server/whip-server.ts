@@ -1,42 +1,15 @@
-/**
- * whip-server.ts
- *
- * Runs a small Bun HTTP server implementing the WHIP protocol.
- *
- * Flow per OBS connection:
- *   1. OBS sends POST /whip/:channelId  (SDP offer, Bearer stream-key)
- *   2. We create a mediasoup WebRtcTransport on the channel's router
- *   3. We connect it with OBS's DTLS params and produce audio+video
- *   4. We call ctx.actions.voice.createStream() to inject into the channel
- *   5. We respond 201 with our SDP answer
- *   6. OBS sends DELETE /whip/:channelId/:sessionId to end the stream
- */
+import type { PluginContext, PluginSettings } from '@sharkord/plugin-sdk';
+import { timingSafeEqual } from 'crypto';
+import { corsResponse } from './util.ts';
+import { escape, stripLow } from 'validator';
+import { WhipSessionManager } from './session-manager.ts';
 
-import type { PluginContext, PluginSettings, TExternalStreamHandle } from '@sharkord/plugin-sdk';
-import type { Producer, Transport } from 'mediasoup/types';
-import { randomUUID, timingSafeEqual } from 'crypto';
-import {
-  buildSdpAnswer,
-  extractDtlsParameters,
-  extractRtpParameters,
-  parseSdp,
-} from './sdp.ts';
-import { addOnceListener, corsResponse } from './util.ts';
-
-interface Session {
-  transport: Transport;
-  audioProducer?: Producer;
-  videoProducer?: Producer;
-  streamHandle: TExternalStreamHandle;
-}
 type WhipSettings = PluginSettings<any>;
 
-// First some state stuff.
-// The server itself and the sessions (for multiple streams)
 let server: ReturnType<typeof Bun.serve> | null = null;
-const sessions = new Map<string, Session>();
+let manager: WhipSessionManager | null = null;
 
-// Rate limit: track failed attempts per IP
+// rate limit: track failed attempts per IP
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 60_000; // 1 minute
@@ -62,7 +35,7 @@ function clearFailedAttempts(ip: string) {
   failedAttempts.delete(ip);
 }
 
-// Constant-time comparison to prevent timing attacks on the stream key
+// constant-time comparison to prevent timing attacks on the stream key
 function safeEqual(a: string, b: string): boolean {
   try {
     const ba = Buffer.from(a);
@@ -70,50 +43,25 @@ function safeEqual(a: string, b: string): boolean {
     const maxLen = Math.max(ba.length, bb.length);
     const pa = Buffer.concat([ba, Buffer.alloc(maxLen - ba.length)]);
     const pb = Buffer.concat([bb, Buffer.alloc(maxLen - bb.length)]);
-    return timingSafeEqual(pa, pb) && ba.length === bb.length;
+    // store the result before the length check so it can't leak timing info
+    const equal = timingSafeEqual(pa, pb);
+    return equal && ba.length === bb.length;
   } catch {
     return false;
   }
 }
 
-// Remove a session, close all the audio and video producers
-function cleanupSession(ctx: PluginContext, sessionId: string) {
-  const session = sessions.get(sessionId);
-  if (!session) return;
-
-  // Delete first — the close() calls below can synchronously fire producer/transport
-  // observer events which re-enter this function. Without this, all three listeners
-  // (audio observer, video observer, router) race in before anyone deletes the entry
-  // and cleanupSession runs three times on the same session.
-  sessions.delete(sessionId);
-
-  try {
-    session.audioProducer?.close();
-    session.videoProducer?.close();
-    session.transport.close();
-    session.streamHandle.remove();
-  } catch (err) {
-    ctx.error('WHIP: error during session cleanup:', err);
-  }
-
-  ctx.log(`WHIP: session ${sessionId} cleaned up`);
+function sanitizeTitle(raw: string): string {
+  return escape(stripLow(raw.trim().replace(/\s+/g, ' '))).slice(0, 64) || 'OBS Stream';
 }
 
-function cleanupAllSessions(ctx: PluginContext) {
-  for (const sessionId of sessions.keys()) {
-    cleanupSession(ctx, sessionId);
-  }
-}
-
-// Actually start the WHIP server.
-// Only one endpoint with some different request types.
-// the main one is POST to register a new session
 export function startWhipServer(
   ctx: PluginContext,
   settings: WhipSettings,
   rtpMinPort: number,
   rtpMaxPort: number,
 ) {
+  manager = new WhipSessionManager();
   const port = settings.get('port') as number;
 
   server = Bun.serve({
@@ -125,21 +73,30 @@ export function startWhipServer(
 
       const url = new URL(req.url);
       const parts = url.pathname.split('/').filter(Boolean);
+      const whipPart  = parts[0]; // always 'whip'
+      const channelId = parts[1]; // voice channel ID, for example: '3'
+      const sessionId = parts[2]; // session UUID, only present on DELETE
 
-      if (req.method === 'POST' && parts[0] === 'whip' && parts.length === 2) {
+      // custom stream name, falls back to the setting, then to a default.
+      // And yes i know what you're gonna say. 'But this is overkill for a title!!'. And you'd be right.
+      // I just really don't want to deal with regex escape stuff so here we are.
+      const rawTitle = url.searchParams.get('title') ?? settings.get('stream_name') as string ?? 'OBS Stream';
+      const title = sanitizeTitle(rawTitle);
+
+      if (req.method === 'POST' && whipPart === 'whip' && parts.length === 2) {
         return corsResponse(
-          await handleWhipOffer(ctx, settings, req, parts[1]!, rtpMinPort, rtpMaxPort)
+          await handleWhipOffer(ctx, settings, req, channelId!, title, rtpMinPort, rtpMaxPort)
         );
       }
 
-      if (req.method === 'DELETE' && parts[0] === 'whip' && parts.length === 3) {
-        return corsResponse(handleWhipDelete(ctx, parts[2]!));
+      if (req.method === 'DELETE' && whipPart === 'whip' && parts.length === 3) {
+        return corsResponse(handleWhipDelete(ctx, sessionId!));
       }
 
       if (req.method === 'GET' && url.pathname === '/whip') {
         return corsResponse(
           new Response(
-            JSON.stringify({ status: 'ok', sessions: sessions.size }),
+            JSON.stringify({ status: 'ok', sessions: manager!.size }),
             { headers: { 'Content-Type': 'application/json' } }
           )
         );
@@ -150,14 +107,6 @@ export function startWhipServer(
   });
 
   ctx.log(`WHIP server listening on port ${port}`);
-}
-
-export function stopWhipServer(ctx: PluginContext) {
-  cleanupAllSessions(ctx);
-  failedAttempts.clear();
-  server?.stop();
-  server = null;
-  ctx.log('WHIP server stopped');
 }
 
 //                  .##@@&&&@@##.
@@ -183,6 +132,7 @@ async function handleWhipOffer(
   settings: WhipSettings,
   req: Request,
   channelIdStr: string,
+  title: string,
   rtpMinPort: number,
   rtpMaxPort: number,
 ): Promise<Response> {
@@ -198,19 +148,17 @@ async function handleWhipOffer(
     }
     if (!safeEqual(providedKey, expectedKey)) {
       recordFailedAttempt(clientIp);
-      ctx.error(`WHIP: rejected connection from ${clientIp} — wrong stream key`);
+      ctx.error(`WHIP: rejected connection from ${clientIp}, wrong stream key`);
       return new Response('Unauthorized', { status: 401 });
     }
     clearFailedAttempts(clientIp);
   }
 
-  // Channel
   const channelId = parseInt(channelIdStr, 10);
   if (isNaN(channelId)) {
     return new Response('Bad channel ID', { status: 400 });
   }
 
-  // SDP offer
   const offerSdp = await req.text();
   if (!offerSdp.startsWith('v=0')) {
     return new Response('Expected SDP offer body', { status: 400 });
@@ -218,116 +166,22 @@ async function handleWhipOffer(
 
   ctx.log(`WHIP: incoming offer for channel ${channelId}`);
 
+  // max streams is enforced inside createSession so the check and the slot
+  // reservation happen atomically before any async work.
+  const maxStreams = settings.get('max_streams') as number;
+
   try {
-    const router = ctx.actions.voice.getRouter(channelId);
-    if (!router) {
-      return new Response(
-        `Voice channel ${channelId} has no active runtime. ` +
-          `Someone must be in the channel before you can stream into it.`,
-        { status: 503 }
-      );
-    }
-
-    const { ip: listenIp, announcedAddress } = await ctx.actions.voice.getListenInfo();
-    const rawHost = announcedAddress ?? listenIp;
-    const announcedHost = rawHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-    ctx.log(`WHIP: listenIp=${listenIp} announcedHost=${announcedHost}`);
-
-    ctx.log(`WHIP: creating WebRtcTransport...`);
-    const transport = await router.createWebRtcTransport({
-      listenInfos: [
-        { protocol: 'udp', ip: '0.0.0.0', announcedAddress: announcedHost, portRange: { min: rtpMinPort, max: rtpMaxPort } },
-        { protocol: 'tcp', ip: '0.0.0.0', announcedAddress: announcedHost, portRange: { min: rtpMinPort, max: rtpMaxPort } },
-      ],
-      enableUdp: true,
-      enableTcp: true,
-      preferUdp: true,
-      enableSctp: false,
-    });
-    ctx.log(`WHIP: fingerprint algorithms: ${transport.dtlsParameters.fingerprints.map(f => f.algorithm).join(', ')}`);
-
-    transport.on('icestatechange',  (state) => ctx.log(`WHIP [${transport.id}] ICE: ${state}`));
-    transport.on('dtlsstatechange', (state) => ctx.log(`WHIP [${transport.id}] DTLS: ${state}`));
-
-    const parsedOffer = parseSdp(offerSdp);
-
-    ctx.log(`WHIP: transport created, connecting DTLS...`);
-    const obsDtlsParams = extractDtlsParameters(parsedOffer);
-    ctx.log(`WHIP: OBS fingerprint (theirs):  ${obsDtlsParams.fingerprints[0]?.algorithm} ${obsDtlsParams.fingerprints[0]?.value}`);
-    ctx.log(`WHIP: OBS DTLS role we assigned: ${obsDtlsParams.role}`);
-    ctx.log(`WHIP: our fingerprint (ours):    ${transport.dtlsParameters.fingerprints.find(f => f.algorithm === 'sha-256')?.value}`);
-    await transport.connect({ dtlsParameters: obsDtlsParams });
-
-    // ---------------- Set up audio and video -------------------------
-    // ---------------- Yes this is the main thingy --------------------
-    const audioRtpParams = extractRtpParameters(parsedOffer, 'audio');
-    let audioProducer: Producer | undefined;
-    if (audioRtpParams) {
-      audioProducer = await transport.produce({ kind: 'audio', rtpParameters: audioRtpParams });
-      ctx.debug(`WHIP: audio producer ${audioProducer.id}`);
-    }
-
-    const videoRtpParams = extractRtpParameters(parsedOffer, 'video');
-    let videoProducer: Producer | undefined;
-    if (videoRtpParams) {
-      videoProducer = await transport.produce({ kind: 'video', rtpParameters: videoRtpParams });
-      ctx.debug(`WHIP: video producer ${videoProducer.id}`);
-    }
-
-    if (!audioProducer && !videoProducer) {
-      transport.close();
-      return new Response('SDP offer contained no usable audio or video', { status: 400 });
-    }
-
-    const sessionId = randomUUID();
-    const streamHandle = ctx.actions.voice.createStream({
+    const { sessionId, sdp } = await manager!.createSession(
+      ctx,
       channelId,
-      title: 'OBS Stream',
-      key: sessionId,
-      producers: { audio: audioProducer, video: videoProducer },
-    });
-
-    sessions.set(sessionId, { transport, audioProducer, videoProducer, streamHandle });
-
-    // ---------------------- Setup finished -----------------------
-
-    ctx.log(
-      `WHIP: stream ${sessionId} started in channel ${channelId}` +
-        ` (audio=${!!audioProducer}, video=${!!videoProducer})`
+      title,
+      offerSdp,
+      rtpMinPort,
+      rtpMaxPort,
+      maxStreams,
     );
 
-    // Tear down if the router closes (everyone left the voice channel)
-    addOnceListener(router, '@close', () => {
-      ctx.log(`WHIP: router closed for channel ${channelId}, cleaning up ${sessionId}`);
-      cleanupSession(ctx, sessionId);
-    });
-
-    // Tear down if either producer dies unexpectedly
-    if (audioProducer) {
-      addOnceListener(audioProducer.observer, 'close', () => {
-        cleanupSession(ctx, sessionId);
-      });
-    }
-    if (videoProducer) {
-      addOnceListener(videoProducer.observer, 'close', () => {
-        cleanupSession(ctx, sessionId);
-      });
-    }
-
-    const answerSdp = buildSdpAnswer({
-      parsedOffer,
-      iceParameters: transport.iceParameters,
-      iceCandidates: transport.iceCandidates,
-      dtlsParameters: transport.dtlsParameters,
-      announcedIp: announcedHost,
-    });
-
-    ctx.log('WHIP: ICE candidates offered to OBS:\n' +
-      transport.iceCandidates.map(c => `  ${c.protocol} ${c.ip}:${c.port} (${c.type})`).join('\n')
-    );
-    ctx.log('WHIP: SDP answer:\n' + answerSdp);
-
-    return new Response(answerSdp, {
+    return new Response(sdp, {
       status: 201,
       headers: {
         'Content-Type': 'application/sdp',
@@ -337,14 +191,26 @@ async function handleWhipOffer(
   } catch (err) {
     ctx.error('WHIP: failed to set up stream:', err);
     const msg = err instanceof Error ? err.message : JSON.stringify(err);
-    return new Response(`Stream setup failed: ${msg}`, { status: 500 });
+    // send 503 for the stream limit error so OBS knows to back off
+    const status = msg.startsWith('Stream limit') ? 503 : 500;
+    return new Response(msg, { status });
   }
 }
 
 function handleWhipDelete(ctx: PluginContext, sessionId: string): Response {
-  if (!sessions.has(sessionId)) {
+  if (!manager?.has(sessionId)) {
     return new Response('Session not found', { status: 404 });
   }
-  cleanupSession(ctx, sessionId);
+  manager.remove(sessionId);
+  ctx.log(`WHIP: session ${sessionId} ended by client`);
   return new Response(null, { status: 200 });
+}
+
+export function stopWhipServer(ctx: PluginContext) {
+  manager?.clear();
+  failedAttempts.clear();
+  server?.stop();
+  server = null;
+  manager = null;
+  ctx.log('WHIP server stopped');
 }

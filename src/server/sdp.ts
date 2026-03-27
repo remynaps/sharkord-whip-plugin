@@ -1,14 +1,4 @@
-/**
- * sdp.ts
- *
- * Converts between OBS's SDP offer and mediasoup transport parameters,
- * and builds the SDP answer we send back to OBS.
- *
- * All exported functions take a pre-parsed SDP object . call parseSdp() once
- * and pass the result around instead of re-parsing the same string repeatedly.
- */
-
-import { parse, write, type MediaDescription } from 'sdp-transform';
+import { parse, write, type SessionDescription, type MediaDescription } from 'sdp-transform';
 import { randomInt } from 'crypto';
 import type {
   DtlsParameters,
@@ -19,7 +9,7 @@ import type {
   RtpParameters,
 } from 'mediasoup/types';
 
-export type ParsedSdp = ReturnType<typeof parse>;
+export type ParsedSdp = SessionDescription;
 export interface AnswerOptions {
   parsedOffer: ParsedSdp;
   iceParameters: IceParameters;
@@ -28,11 +18,16 @@ export interface AnswerOptions {
   announcedIp: string;
 }
 
-// sha-256 is what basically every WebRTC client expects. The others are fallbacks
-// in case mediasoup doesn't offer it (unlikely, but let's not crash over it).
+// sha-256 is what every modern WebRTC client expects. the others are just
+// fallbacks in case mediasoup doesn't offer it for some reason.
 const FINGERPRINT_PREFERENCE = ['sha-256', 'sha-512', 'sha-384', 'sha-1'];
 
-/** Parse an SDP string once . pass the result to the extract/build functions below. */
+// simple counter so each SDP answer gets a unique session ID. resets on
+// server restart but that's fine, it only needs to be unique per connection.
+let sessionCounter = 0;
+
+// parse an SDP string once and pass the result around. no need to re-parse
+// the same string multiple times.
 export function parseSdp(sdp: string): ParsedSdp {
   return parse(sdp);
 }
@@ -42,15 +37,12 @@ export function extractDtlsParameters(parsed: ParsedSdp): DtlsParameters {
   const fp = media?.fingerprint ?? parsed.fingerprint;
   if (!fp) throw new Error('No DTLS fingerprint in SDP offer');
 
-  // The role field here is the REMOTE's (OBS's) role, not ours.
-  // mediasoup uses it to decide whether to initiate or wait:
-  //   role: 'client' → remote initiates → mediasoup waits (acts as server)
-  //   role: 'server' → remote waits     → mediasoup initiates (acts as client)
-  //
-  // Our SDP answer always says setup:passive, so OBS initiates toward us.
-  //   OBS offer 'active'  → OBS initiates → OBS is client → pass 'client'
-  //   OBS offer 'actpass' → we chose passive → OBS initiates → OBS is client → pass 'client'
-  //   OBS offer 'passive' → OBS waits → OBS is server → pass 'server' (mediasoup initiates)
+  // DTLS is the encryption handshake. one side has to go first (the "client")
+  // and the other waits (the "server"). we always answer as passive so OBS
+  // always initiates toward us, which means:
+  //   OBS says "active"  -> OBS goes first -> OBS is the client
+  //   OBS says "actpass" -> we picked passive -> OBS goes first -> OBS is the client
+  //   OBS says "passive" -> OBS is waiting -> we go first -> OBS is the server
   const setupAttr = media?.setup ?? parsed.setup ?? 'actpass';
   const role: DtlsParameters['role'] =
     setupAttr === 'passive' ? 'server' : 'client';
@@ -70,6 +62,10 @@ export function extractRtpParameters(
 
   const codecs: RtpParameters['codecs'] = media.rtp.map((r) => {
     const fmtp = media.fmtp?.find((f) => f.payload === r.payload);
+
+    // rtcpFb is feedback messages the receiver can send back to the sender,
+    // things like "please send a keyframe" or "you're sending too fast".
+    // payload '*' means it applies to all codecs so we include those too.
     const rtcpFb = (media.rtcpFb ?? [])
       .filter((fb) => fb.payload === r.payload || fb.payload === '*')
       .map((fb) => ({ type: fb.type, parameter: fb.subtype ?? '' }));
@@ -84,13 +80,20 @@ export function extractRtpParameters(
     };
   });
 
-  const ssrcLine = media.ssrcs?.[0];
-  const encodings: RtpParameters['encodings'] = [
-    // SSRC is basically a stream ID . OBS puts it in the offer, we just echo it back.
-    // If it's missing for some reason, a random one works fine.
-    { ssrc: ssrcLine?.id ?? randomInt(0xffffffff) },
-  ];
+  // SSRC is basically a numeric stream ID that OBS stamps on every RTP packet.
+  // we echo it back so mediasoup knows which packets belong to this stream.
+  // if OBS didn't include one for some reason, a random number works fine.
+  const ssrcId = media.ssrcs?.[0]?.id ?? randomInt(1, 0xffffffff);
 
+  // CNAME is a human-readable label that shows up in RTCP reports, mostly
+  // useful for debugging. we grab it from the offer if it's there.
+  const cname = media.ssrcs?.find(s => s.attribute === 'cname')?.value;
+
+  const encodings: RtpParameters['encodings'] = [{ ssrc: ssrcId }];
+
+  // header extensions are extra bits of metadata attached to each RTP packet.
+  // things like timestamps, audio levels, video orientation. we just pass
+  // through whatever OBS offered, mediasoup handles the rest.
   const headerExtensions: RtpParameters['headerExtensions'] = (media.ext ?? []).map((e) => ({
     uri: e.uri as RtpHeaderExtensionUri,
     id: e.value,
@@ -104,11 +107,8 @@ export function extractRtpParameters(
     encodings,
     headerExtensions,
     rtcp: {
-      // CNAME is just a human-readable sender label used in RTCP reports.
-      // We grab it from the offer if it's there, otherwise slap a default on it.
-      cname: ssrcLine?.attribute === 'cname' ? String(ssrcLine.value) : 'obs-stream',
-      // Smaller RTCP packets . standard WebRTC behaviour, no reason to change it.
-      reducedSize: true,
+      cname: cname ? String(cname) : 'obs-stream',
+      reducedSize: true, // smaller RTCP packets, standard WebRTC behaviour
     },
   };
 }
@@ -124,24 +124,25 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
   if (!fingerprint) throw new Error('No DTLS fingerprint in transport parameters');
 
   const candidateLines = iceCandidates.map((c, idx) => ({
-    // foundation is supposed to group candidates that share a base IP.
-    // mediasoup doesn't expose it so we just use the index . works fine in practice.
+    // foundation groups candidates that share the same base IP. mediasoup
+    // doesn't expose it so we just use the index, works fine in practice.
     foundation: String(idx + 1),
-    component: 1,           // 1 = RTP, 2 = RTCP. Always 1 since we mux RTCP onto the RTP port.
+    component: 1,  // 1 = RTP, 2 = RTCP. always 1 since we mux RTCP onto the RTP port
     transport: c.protocol.toUpperCase(),
     priority: c.priority,
     ip: c.ip,
     port: c.port,
-    type: c.type,           // 'host' | 'srflx' | 'relay' . mediasoup gives us 'host'
+    type: c.type,  // host | srflx | relay, mediasoup gives us host
     ...(c.tcpType ? { tcptype: c.tcpType } : {}),
   }));
 
-  // These are the same across every media section when using BUNDLE,
-  // so we define them once and spread them in below.
+  // ICE and DTLS params are the same across all media sections when using
+  // BUNDLE (which we always do), so define them once and spread in below.
   const sharedIce = {
     iceUfrag: iceParameters.usernameFragment,
     icePwd: iceParameters.password,
-    // renomination = if a better network path shows up mid-stream, use it without restarting ICE.
+    // renomination lets ICE switch to a better network path mid-stream
+    // without doing a full ICE restart.
     iceOptions: 'renomination',
   };
 
@@ -152,33 +153,26 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
 
   const mediaAnswers = parsedOffer.media.map((offerMedia: MediaDescription) => ({
     type: offerMedia.type,
-    // Port 9 is the conventional WebRTC discard placeholder . standard across JSEP (RFC 9429)
-    // and WHIP (RFC 9725). Means "ignore this, look at the ICE candidates instead."
+    // port 9 is the standard WebRTC placeholder. it means "ignore this port,
+    // use the ICE candidates instead." (RFC 9429, RFC 9725)
     port: 9,
-    protocol: 'UDP/TLS/RTP/SAVPF',  // encrypted RTP with feedback . the standard WebRTC stack
+    protocol: 'UDP/TLS/RTP/SAVPF',  // encrypted RTP with feedback, standard WebRTC
     payloads: (offerMedia.rtp ?? []).map((r) => r.payload).join(' '),
     connection: { version: 4, ip: announcedIp },
     ...sharedIce,
     ...sharedDtls,
     mid: offerMedia.mid,
-    // recvonly . we're a sink, not a source. We take OBS's stream, we don't send anything back.
-    direction: 'recvonly',
+    direction: 'recvonly',  // we're a sink, we take the stream and don't send anything back
     rtp: offerMedia.rtp,
-    // Port 9 is another discard placeholder. Doesn't matter because rtcp-mux
-    // means RTCP piggybacks on the RTP port anyway.
     rtcp: { port: 9, netType: 'IN', ipVer: 4, address: '0.0.0.0' },
     rtcpFb: offerMedia.rtcpFb,
     fmtp: offerMedia.fmtp,
     ext: offerMedia.ext,
     candidates: candidateLines,
-    // Tell OBS we're done listing candidates upfront (no trickle ICE).
-    endOfCandidates: 'end-of-candidates',
-    // RTCP rides on the same port as RTP . one less port to worry about.
-    rtcpMux: 'rtcp-mux',
-    // Smaller RTCP packets . same as above, standard WebRTC stuff.
-    rtcpRsize: 'rtcp-rsize',
-    // We're recvonly so we have no outgoing stream to describe . leave this empty.
-    ssrcs: [],
+    endOfCandidates: 'end-of-candidates',  // no trickle ICE, all candidates are upfront
+    rtcpMux: 'rtcp-mux',     // RTCP shares the RTP port, one less port to deal with
+    rtcpRsize: 'rtcp-rsize', // smaller RTCP packets, same as above
+    ssrcs: [],  // recvonly so we have no outgoing stream to describe
   }));
 
   const groups = parsedOffer.groups ?? [{
@@ -190,37 +184,40 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
     version: 0,
     origin: {
       username: '-',
-      sessionId: Date.now(),  // just needs to be unique . timestamp does the job
+      sessionId: ++sessionCounter,
       sessionVersion: 1,
-      netType: 'IN',          // 'IN' = Internet. It's the only valid value, basically just boilerplate.
+      netType: 'IN',        // always IN (internet), basically just boilerplate
       ipVer: 4,
-      address: '127.0.0.1',  // purely informational, OBS doesn't use this for routing
+      address: '127.0.0.1', // informational only, OBS doesn't use this for routing
     },
-    name: '-',                // required by the SDP spec, content is irrelevant
-    timing: { start: 0, stop: 0 },  // 0/0 means the session never expires
-    // ice-lite means we sit back and respond to OBS's ICE checks . we never send our own.
-    // mediasoup always works this way, and we need to say so or OBS will wait forever
-    // for checks that are never coming.
+    name: '-',               // required by spec, content doesn't matter
+    timing: { start: 0, stop: 0 }, // 0/0 means the session never expires
+    // ice-lite means we only respond to OBS's ICE checks, we never send our own.
+    // mediasoup always works this way and OBS needs to know or it'll wait forever.
     icelite: 'ice-lite',
     fingerprint: { type: fingerprint.algorithm, hash: fingerprint.value },
     groups,
-    // WMS boilerplate . WebRTC requires it, content doesn't matter.
-    msidSemantic: { semantic: 'WMS', token: '' },
+    msidSemantic: { semantic: 'WMS', token: '' }, // WebRTC boilerplate, required by spec
     media: mediaAnswers,
   } as Parameters<typeof write>[0]);
 }
 
+// converts fmtp config strings like "profile-level-id=42e01f;level-asymmetry-allowed=1"
+// into a plain object. numeric values are parsed as numbers.
 function fmtpToObject(config?: string): Record<string, string | number> {
   if (!config) return {};
-  return Object.fromEntries(
-    config.split(';').flatMap((pair) => {
-      const eqIdx = pair.indexOf('=');
-      if (eqIdx === -1) return [];
-      const k = pair.slice(0, eqIdx).trim();
-      const v = pair.slice(eqIdx + 1).trim();
-      if (!k) return [];
-      const num = Number(v);
-      return [[k, isNaN(num) ? v : num]];
-    })
-  );
+  const obj: Record<string, string | number> = {};
+
+  for (const pair of config.split(';')) {
+    const eqIdx = pair.indexOf('=');
+    if (eqIdx === -1) continue;
+
+    const k = pair.slice(0, eqIdx).trim();
+    const v = pair.slice(eqIdx + 1).trim();
+    if (!k) continue;
+
+    const num = Number(v);
+    obj[k] = !isNaN(num) ? num : v;
+  }
+  return obj;
 }
