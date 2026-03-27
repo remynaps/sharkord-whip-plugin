@@ -1,10 +1,22 @@
-# sharkord-whip
-<img src="./media/no-stream.gif" width="600" height="200" />
+> [!CAUTION]
+> This plugin is in alpha. Expect bugs everywhere! 
+> ❤️
+
+<div align="center">
+  <h1>Sharkord-WHIP</h1>
+  <p><strong>A Sharkord plugin that lets OBS stream directly into a voice channel using the WHIP protocol.</strong></p>
+      <img src="./media/no-stream.gif" width="600" height="200" />
+
+  [![Version](https://img.shields.io/github/v/release/remynaps/sharkord-whip-plugin)](https://github.com/remynaps/sharkord-whip-plugin/releases)
+  [![Downloads](https://img.shields.io/github/downloads/remynaps/sharkord-whip-plugin/total)](https://github.com/Sharkord/sharkord/releases)
+  [![Last Commit](https://img.shields.io/github/last-commit/remynaps/sharkord-whip-plugin)](https://github.com/Sharkord/sharkord/commits)
+</div>
 
 A [Sharkord](https://github.com/Sharkord/sharkord) plugin that lets OBS stream directly into a voice channel using the [WHIP protocol](https://www.rfc-editor.org/rfc/rfc9725).
 
-If you want to understand how this works under the hood, or you're thinking about writing your own WHIP server, check out [how-a-stream-works.md](./how-a-stream-works.md). It walks through the full SDP/ICE/DTLS/SRTP flow with ASCII diagrams, common pitfalls, and a glossary.
-
+> [!NOTE]
+> If you want to understand how this works under the hood, or you're thinking about writing your own WHIP server, check out [how-a-stream-works.md](./how-a-stream-works.md). It walks through the full SDP/ICE/DTLS/SRTP flow with ASCII diagrams, common pitfalls, and a glossary.
+> ❤️
 ## Installation
 
 Follow [THESE](https://sharkord.com/docs/plugins/installation) steps :).
