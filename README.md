@@ -1,6 +1,5 @@
 > [!CAUTION]
-> This plugin is in alpha. Expect bugs everywhere! 
-> ❤️
+> This plugin is in alpha. Expect bugs everywhere!
 
 <div align="center">
   <h1>Sharkord-WHIP</h1>
