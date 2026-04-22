@@ -11,8 +11,6 @@
       },
       "devDependencies": {
         "@eslint/js": "^10.0.1",
-        "@sharkord/plugin-builder": "link:@sharkord/plugin-builder",
-        "@sharkord/plugin-sdk": "link:@sharkord/plugin-sdk",
         "@types/bun": "latest",
         "@types/eslint__js": "^9.14.0",
         "@types/react": "^19.2.14",
@@ -61,10 +59,6 @@
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
 
     "@isaacs/fs-minipass": ["@isaacs/fs-minipass@4.0.1", "", { "dependencies": { "minipass": "^7.0.4" } }, "sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w=="],
-
-    "@sharkord/plugin-builder": ["@sharkord/plugin-builder@link:@sharkord/plugin-builder", {}],
-
-    "@sharkord/plugin-sdk": ["@sharkord/plugin-sdk@link:@sharkord/plugin-sdk", {}],
 
     "@types/bun": ["@types/bun@1.3.12", "", { "dependencies": { "bun-types": "1.3.12" } }, "sha512-DBv81elK+/VSwXHDlnH3Qduw+KxkTIWi7TXkAeh24zpi5l0B2kUg9Ga3tb4nJaPcOFswflgi/yAvMVBPrxMB+A=="],
 
