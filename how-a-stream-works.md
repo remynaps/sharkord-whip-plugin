@@ -17,11 +17,13 @@ What IS mediasoup-specific is the code in this plugin: `router`, `WebRtcTranspor
 If you're building your own WHIP server, here's the minimum:
 
 **HTTP layer:**
+
 - `POST /whip/:roomId` -- accept an SDP offer, return an SDP answer with `201 Created` and a `Location` header
 - `DELETE /whip/:roomId/:sessionId` -- tear down a session
 - `OPTIONS` -- CORS preflight, OBS sends this first
 
 **Per connection:**
+
 1. Parse the SDP offer
 2. Create a WebRTC transport on your media server (this allocates a UDP port)
 3. Call `transport.connect()` with the DTLS fingerprint and role from the offer
@@ -30,6 +32,7 @@ If you're building your own WHIP server, here's the minimum:
 6. Return the answer
 
 **Session cleanup:**
+
 - When DELETE arrives
 - When everyone leaves the room (router/room closes)
 - When a producer dies unexpectedly
@@ -42,7 +45,7 @@ That's it. Everything below is just the detail of how each of those steps actual
 
 These are the things that will silently break your server and waste your afternoon:
 
-**DTLS role confusion** -- The `role` you pass to `transport.connect()` is the *remote's* role, not yours. If OBS says `actpass` or `active`, OBS is the client (it goes first). If OBS says `passive`, OBS is the server (it waits). Get this backwards and you'll get a fatal `unexpected_message` alert within 1 second of ICE completing.
+**DTLS role confusion** -- The `role` you pass to `transport.connect()` is the _remote's_ role, not yours. If OBS says `actpass` or `active`, OBS is the client (it goes first). If OBS says `passive`, OBS is the server (it waits). Get this backwards and you'll get a fatal `unexpected_message` alert within 1 second of ICE completing.
 
 **Forgetting `ice-lite`** -- mediasoup (and most SFU servers) run in ice-lite mode, which means they only respond to ICE checks and never send their own. You must include `a=ice-lite` in your SDP answer or OBS will wait forever for checks that never come.
 
@@ -206,8 +209,14 @@ Note: see the pitfalls section above about getting the role right. It's the remo
 ### 3d. Create producers
 
 ```typescript
-audioProducer = await transport.produce({ kind: 'audio', rtpParameters: audioRtpParams });
-videoProducer = await transport.produce({ kind: 'video', rtpParameters: videoRtpParams });
+audioProducer = await transport.produce({
+  kind: "audio",
+  rtpParameters: audioRtpParams,
+});
+videoProducer = await transport.produce({
+  kind: "video",
+  rtpParameters: videoRtpParams,
+});
 ```
 
 A **producer** represents an incoming media stream. Creating one tells mediasoup "expect Opus audio packets with these parameters" and "expect H264 video packets with these parameters." mediasoup is now ready to receive and forward them.
@@ -327,7 +336,7 @@ With the network path confirmed, OBS initiates a **DTLS handshake**: basically T
 
 Our SDP answer says `setup:passive`, which means OBS must send the first ClientHello. If this is misconfigured (both sides think the other should go first), OBS sends a fatal alert: `unexpected_message` (code 10) and the connection dies in under a second.
 
-The `role` field we pass to `transport.connect()` is the *remote's* role. Passing `'client'` means "OBS initiates", which is what we want.
+The `role` field we pass to `transport.connect()` is the _remote's_ role. Passing `'client'` means "OBS initiates", which is what we want.
 
 This is why the fingerprints in the SDP matter -- they're how both sides confirm they're talking to the right server and not some eavesdropper in between.
 
@@ -425,25 +434,25 @@ Tinkywinky's friends see the stream disappear from the channel. Port 40014 is fr
 
 ## Glossary
 
-| Term | What it actually is |
-|------|-------------------|
-| **WHIP** | A standard HTTP-based protocol (RFC 9725) for pushing a WebRTC stream to a server. OBS sends an SDP offer over HTTP, gets an SDP answer back, then streams over WebRTC. Handshake over HTTP, stream over UDP. |
-| **SDP** | A plain text format for describing a media session: codecs, ports, security keys. Not a streaming protocol itself, just a negotiation document. |
-| **ICE** | The process of finding a working network path between two peers. Involves sending test packets and confirming they arrive. Handles NATs and firewalls. |
-| **STUN** | Tiny test packets used during ICE to check if a network path is alive and to discover your public IP/port from behind NAT. |
-| **DTLS** | Encryption for UDP (RFC 6347). Like TLS but designed for unreliable packets. Sets up the encrypted tunnel before media flows. The `setup` attribute in SDP controls who sends the first ClientHello -- `passive` means we wait for OBS to go first. |
-| **SRTP** | Encrypted RTP: the actual video and audio packets after DTLS has negotiated the keys. |
-| **RTP** | The packet format for real-time media (RFC 3550). Each packet has a sequence number, timestamp, and SSRC. Large frames are split across multiple packets and reassembled using the sequence number and the marker bit on the last packet. |
-| **RTCP** | Control packets that ride alongside RTP (also RFC 3550). Flows both ways: OBS sends timing info (Sender Reports), we send feedback like PLI (request a keyframe) or NACK (request a retransmit). |
-| **SSRC** | A random number that identifies a specific stream. OBS has one SSRC for audio and one for video -- mediasoup uses it to tell packets apart when they arrive on the same port. |
-| **MID** | Media ID. A label for each `m=` section in SDP so both sides can refer to "the audio track" or "the video track" unambiguously. |
-| **BUNDLE** | Sending all media over a single port instead of one per track (RFC 9143). Saves ports, which matters when your Docker range is only 21 ports wide. |
-| **SFU** | Selective Forwarding Unit. A media server that receives streams and forwards them to participants without decoding. mediasoup, Janus, Pion, and LiveKit are all SFUs. |
-| **Router** | mediasoup's name for a room or conference. Knows about all participants and routes media between them. Dies when the last person leaves. |
-| **Transport** | A network connection in mediasoup -- allocates a port and handles ICE + DTLS for one peer. Janus calls this a "handle", Pion calls it a "PeerConnection". |
-| **Producer** | An incoming media stream in mediasoup. One per track: one for OBS's audio, one for OBS's video. |
-| **Consumer** | An outgoing media stream in mediasoup. Sharkord creates one for each person in the channel who needs to receive the stream. Our plugin doesn't create these, Sharkord handles it. |
-| **ice-lite** | A simplified ICE mode (RFC 8445) where the server only responds to checks and never sends them first. mediasoup always runs in ice-lite mode. |
-| **PLI** | Picture Loss Indication: a RTCP message from the server to OBS saying "I lost some data, please send a full keyframe so I can resync." |
-| **NACK** | Negative Acknowledgement: a RTCP message saying "I didn't receive packet #1042, please resend it." |
-| **WHEP** | The other half of WHIP: a protocol for pulling a WebRTC stream from a server (for a web viewer for example). We don't implement this, but it uses the same SDP/ICE/DTLS machinery. |
+| Term          | What it actually is                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **WHIP**      | A standard HTTP-based protocol (RFC 9725) for pushing a WebRTC stream to a server. OBS sends an SDP offer over HTTP, gets an SDP answer back, then streams over WebRTC. Handshake over HTTP, stream over UDP.                                       |
+| **SDP**       | A plain text format for describing a media session: codecs, ports, security keys. Not a streaming protocol itself, just a negotiation document.                                                                                                     |
+| **ICE**       | The process of finding a working network path between two peers. Involves sending test packets and confirming they arrive. Handles NATs and firewalls.                                                                                              |
+| **STUN**      | Tiny test packets used during ICE to check if a network path is alive and to discover your public IP/port from behind NAT.                                                                                                                          |
+| **DTLS**      | Encryption for UDP (RFC 6347). Like TLS but designed for unreliable packets. Sets up the encrypted tunnel before media flows. The `setup` attribute in SDP controls who sends the first ClientHello -- `passive` means we wait for OBS to go first. |
+| **SRTP**      | Encrypted RTP: the actual video and audio packets after DTLS has negotiated the keys.                                                                                                                                                               |
+| **RTP**       | The packet format for real-time media (RFC 3550). Each packet has a sequence number, timestamp, and SSRC. Large frames are split across multiple packets and reassembled using the sequence number and the marker bit on the last packet.           |
+| **RTCP**      | Control packets that ride alongside RTP (also RFC 3550). Flows both ways: OBS sends timing info (Sender Reports), we send feedback like PLI (request a keyframe) or NACK (request a retransmit).                                                    |
+| **SSRC**      | A random number that identifies a specific stream. OBS has one SSRC for audio and one for video -- mediasoup uses it to tell packets apart when they arrive on the same port.                                                                       |
+| **MID**       | Media ID. A label for each `m=` section in SDP so both sides can refer to "the audio track" or "the video track" unambiguously.                                                                                                                     |
+| **BUNDLE**    | Sending all media over a single port instead of one per track (RFC 9143). Saves ports, which matters when your Docker range is only 21 ports wide.                                                                                                  |
+| **SFU**       | Selective Forwarding Unit. A media server that receives streams and forwards them to participants without decoding. mediasoup, Janus, Pion, and LiveKit are all SFUs.                                                                               |
+| **Router**    | mediasoup's name for a room or conference. Knows about all participants and routes media between them. Dies when the last person leaves.                                                                                                            |
+| **Transport** | A network connection in mediasoup -- allocates a port and handles ICE + DTLS for one peer. Janus calls this a "handle", Pion calls it a "PeerConnection".                                                                                           |
+| **Producer**  | An incoming media stream in mediasoup. One per track: one for OBS's audio, one for OBS's video.                                                                                                                                                     |
+| **Consumer**  | An outgoing media stream in mediasoup. Sharkord creates one for each person in the channel who needs to receive the stream. Our plugin doesn't create these, Sharkord handles it.                                                                   |
+| **ice-lite**  | A simplified ICE mode (RFC 8445) where the server only responds to checks and never sends them first. mediasoup always runs in ice-lite mode.                                                                                                       |
+| **PLI**       | Picture Loss Indication: a RTCP message from the server to OBS saying "I lost some data, please send a full keyframe so I can resync."                                                                                                              |
+| **NACK**      | Negative Acknowledgement: a RTCP message saying "I didn't receive packet #1042, please resend it."                                                                                                                                                  |
+| **WHEP**      | The other half of WHIP: a protocol for pulling a WebRTC stream from a server (for a web viewer for example). We don't implement this, but it uses the same SDP/ICE/DTLS machinery.                                                                  |

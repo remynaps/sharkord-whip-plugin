@@ -1,25 +1,34 @@
 {
   "name": "sharkord-whip",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "module": "src/server/index.ts",
   "type": "module",
   "scripts": {
     "build": "NODE_ENV=production bun build.ts",
-    "publish": "bun publish.ts"
+    "publish": "bun publish.ts",
+    "test": "bun test",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "sdp-transform": "^2.14.1",
     "mediasoup": "3.19.17",
     "validator": "latest"
-    },
+  },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@sharkord/plugin-builder": "link:@sharkord/plugin-builder",
+    "@sharkord/plugin-sdk": "link:@sharkord/plugin-sdk",
     "@types/bun": "latest",
-    "typescript": "^5",
+    "@types/eslint__js": "^9.14.0",
+    "@types/react": "^19.2.14",
     "@types/sdp-transform": "latest",
     "@types/validator": "latest",
-    "@types/react": "^19.2.14",
-    "@sharkord/plugin-sdk": "link:@sharkord/plugin-sdk",
-    "@sharkord/plugin-builder": "link:@sharkord/plugin-builder"
+    "eslint": "^10.2.1",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^17.5.0",
+    "prettier": "3.8.3",
+    "typescript": "^5",
+    "typescript-eslint": "^8.59.0"
   },
   "peerDependencies": {
     "typescript": "^5",

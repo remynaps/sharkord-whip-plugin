@@ -6,9 +6,10 @@
   <p><strong>A Sharkord plugin that lets OBS stream directly into a voice channel using the WHIP protocol.</strong></p>
       <img src="./media/no-stream.gif" width="600" height="200" />
 
-  [![Version](https://img.shields.io/github/v/release/remynaps/sharkord-whip-plugin)](https://github.com/remynaps/sharkord-whip-plugin/releases)
-  [![Downloads](https://img.shields.io/github/downloads/remynaps/sharkord-whip-plugin/total)](https://github.com/Sharkord/sharkord/releases)
-  [![Last Commit](https://img.shields.io/github/last-commit/remynaps/sharkord-whip-plugin)](https://github.com/Sharkord/sharkord/commits)
+[![Version](https://img.shields.io/github/v/release/remynaps/sharkord-whip-plugin)](https://github.com/remynaps/sharkord-whip-plugin/releases)
+[![Downloads](https://img.shields.io/github/downloads/remynaps/sharkord-whip-plugin/total)](https://github.com/Sharkord/sharkord/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/remynaps/sharkord-whip-plugin)](https://github.com/Sharkord/sharkord/commits)
+
 </div>
 
 A [Sharkord](https://github.com/Sharkord/sharkord) plugin that lets OBS stream directly into a voice channel using the [WHIP protocol](https://www.rfc-editor.org/rfc/rfc9725).
@@ -16,6 +17,7 @@ A [Sharkord](https://github.com/Sharkord/sharkord) plugin that lets OBS stream d
 > [!NOTE]
 > If you want to understand how this works under the hood, or you're thinking about writing your own WHIP server, check out [how-a-stream-works.md](./how-a-stream-works.md). It walks through the full SDP/ICE/DTLS/SRTP flow with ASCII diagrams, common pitfalls, and a glossary.
 > ❤️
+
 ## Installation
 
 Follow [THESE](https://sharkord.com/docs/plugins/installation) steps :).
@@ -24,7 +26,6 @@ or:
 
 1. Download the latest release from the [Releases](https://github.com/remynaps/sharkord-whip-plugin/releases) page.
 2. Move the `sharkord-whip-plugin` folder to your Sharkord plugins directory, typically `~/.config/sharkord/plugins`.
-
 
 ## Setup
 
@@ -63,15 +64,15 @@ sudo ethtool -K docker0 tx-checksumming off
 
 ### 4. Plugin settings
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| WHIP Port | Port for the HTTP signaling server | `8088` |
-| Stream Key | Bearer token OBS sends for auth | `changeme` |
-| Public URL | Your reverse proxy URL (e.g. `https://stream.example.com`) | _(empty)_ |
-| RTP Min Port | Start of media port range, must match Docker `-p` | `40000` |
-| RTP Max Port | End of media port range, must match Docker `-p` | `40020` |
-| Max Concurrent Streams | Max simultaneous OBS streams. 0 = unlimited | `5` |
-| Stream Name | Default stream name shown in the channel | `OBS Stream` |
+| Setting                | Description                                                | Default      |
+| ---------------------- | ---------------------------------------------------------- | ------------ |
+| WHIP Port              | Port for the HTTP signaling server                         | `8088`       |
+| Stream Key             | Bearer token OBS sends for auth                            | `changeme`   |
+| Public URL             | Your reverse proxy URL (e.g. `https://stream.example.com`) | _(empty)_    |
+| RTP Min Port           | Start of media port range, must match Docker `-p`          | `40000`      |
+| RTP Max Port           | End of media port range, must match Docker `-p`            | `40020`      |
+| Max Concurrent Streams | Max simultaneous OBS streams. 0 = unlimited                | `5`          |
+| Stream Name            | Default stream name shown in the channel                   | `OBS Stream` |
 
 ### 5. OBS settings
 
@@ -99,11 +100,11 @@ If not set, it falls back to the Stream Title setting, then to `OBS Stream`.
 
 ## Commands
 
-| Command | What it does |
-|---------|-------------|
-| `/whip_start` | Start the WHIP server |
-| `/whip_stop` | Stop the server and end all active streams |
-| `/whip_info [channel_id]` | Show OBS connection details for a channel |
+| Command                   | What it does                               |
+| ------------------------- | ------------------------------------------ |
+| `/whip_start`             | Start the WHIP server                      |
+| `/whip_stop`              | Stop the server and end all active streams |
+| `/whip_info [channel_id]` | Show OBS connection details for a channel  |
 
 ---
 

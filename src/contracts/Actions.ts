@@ -1,3 +1,3 @@
-type Actions = {}
+type Actions = {};
 
-  export type { Actions };
+export type { Actions };

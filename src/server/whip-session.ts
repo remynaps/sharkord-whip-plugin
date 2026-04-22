@@ -1,5 +1,5 @@
-import type { Producer, WebRtcTransport } from 'mediasoup/types';
-import type { TExternalStreamHandle } from '@sharkord/plugin-sdk';
+import type { Producer, WebRtcTransport } from "mediasoup/types";
+import type { TExternalStreamHandle } from "@sharkord/plugin-sdk";
 
 export class WhipSession {
   private closed = false;
@@ -9,7 +9,7 @@ export class WhipSession {
     public readonly audioProducer: Producer | undefined,
     public readonly videoProducer: Producer | undefined,
     public readonly streamHandle: TExternalStreamHandle,
-    private readonly onCleanup: (id: string) => void
+    private readonly onCleanup: (id: string) => void,
   ) {}
 
   public close() {
