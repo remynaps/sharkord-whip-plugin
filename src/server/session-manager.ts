@@ -104,6 +104,8 @@ export class WhipSessionManager {
 
       const session = new WhipSession(
         sessionId,
+        channelId,
+        title,
         transport,
         audioProducer,
         videoProducer,
@@ -140,11 +142,71 @@ export class WhipSessionManager {
     }
   }
 
+  public listSessions() {
+    return [...this.sessions.entries()]
+      .filter(([, s]) => s !== null)
+      .map(([sessionId, s]) => ({
+        sessionId,
+        channelId: s.channelId,
+        title: s.title,
+      }));
+  }
+
   public remove(id: string) {
     this.sessions.get(id)?.close();
   }
 
   public clear() {
     for (const id of this.sessions.keys()) this.remove(id);
+  }
+
+  public async getStats(id: string) {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+
+    const [transportStats, audioStats, videoStats] = await Promise.all([
+      session.transport.getStats(),
+      session.audioProducer?.getStats(),
+      session.videoProducer?.getStats(),
+    ]);
+
+    const t = transportStats[0];
+    if (!t) return null;
+    const a = audioStats?.[0] ?? null;
+    const v = videoStats?.[0] ?? null;
+
+    return {
+      transport: {
+        bytesReceived: t.bytesReceived,
+        recvBitrate: t.recvBitrate,
+        iceState: t.iceState,
+        dtlsState: t.dtlsState,
+        remoteIp: t.iceSelectedTuple?.remoteIp,
+        remotePort: t.iceSelectedTuple?.remotePort,
+        protocol: t.iceSelectedTuple?.protocol,
+      },
+      audio: a
+        ? {
+            bitrate: a.bitrate,
+            packetsLost: a.packetsLost,
+            fractionLost: a.fractionLost,
+            jitter: a.jitter,
+            score: a.score,
+            mimeType: a.mimeType,
+          }
+        : null,
+      video: v
+        ? {
+            bitrate: v.bitrate,
+            packetsLost: v.packetsLost,
+            fractionLost: v.fractionLost,
+            jitter: v.jitter,
+            score: v.score,
+            mimeType: v.mimeType,
+            pliCount: v.pliCount,
+            nackCount: v.nackCount,
+          }
+        : null,
+    };
   }
 }

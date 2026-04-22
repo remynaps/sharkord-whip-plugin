@@ -1,6 +1,6 @@
 import type { Actions } from "../contracts/Actions.ts";
 import type { Commands } from "../contracts/Commands.ts";
-import { startWhipServer, stopWhipServer } from "../server/whip-server.ts";
+import { startWhipServer, stopWhipServer, getSessionCount, getStreamStats, listSessions } from "../server/whip-server.ts";
 import {
   createRegisterAction,
   createRegisterCommand,
@@ -131,6 +131,19 @@ const onLoad = async (ctx: PluginContext) => {
       return await whipServerManager.stop(ctx);
     },
   );
+
+  registerAction("get_stream_info", async () => ({
+    activeStreams: getSessionCount(),
+    isRunning: whipServerManager.getIsRunning(),
+  }));
+
+  registerAction("get_stream_stats", async (_invoker, { sessionId }) => {
+    return await getStreamStats(sessionId);
+  });
+
+  registerAction("list_sessions", async () => listSessions());
+
+  ctx.ui.enable();
 
   ctx.log(
     "sharkord-whip: ready ✔ (run /whip_start to begin accepting streams)",

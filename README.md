@@ -7,9 +7,8 @@
       <img src="./media/no-stream.gif" width="600" height="200" />
 
 [![Version](https://img.shields.io/github/v/release/remynaps/sharkord-whip-plugin)](https://github.com/remynaps/sharkord-whip-plugin/releases)
-[![Downloads](https://img.shields.io/github/downloads/remynaps/sharkord-whip-plugin/total)](https://github.com/Sharkord/sharkord/releases)
-[![Last Commit](https://img.shields.io/github/last-commit/remynaps/sharkord-whip-plugin)](https://github.com/Sharkord/sharkord/commits)
-
+[![Downloads](https://img.shields.io/github/downloads/remynaps/sharkord-whip-plugin/total)](https://github.com/remynaps/sharkord-whip-plugin/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/remynaps/sharkord-whip-plugin)](https://github.com/remynaps/sharkord-whip-plugin/commits)
 </div>
 
 A [Sharkord](https://github.com/Sharkord/sharkord) plugin that lets OBS stream directly into a voice channel using the [WHIP protocol](https://www.rfc-editor.org/rfc/rfc9725).

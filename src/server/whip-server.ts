@@ -228,6 +228,18 @@ function handleWhipDelete(ctx: PluginContext, sessionId: string): Response {
   return new Response(null, { status: 200 });
 }
 
+export function listSessions() {
+  return manager?.listSessions() ?? [];
+}
+
+export function getSessionCount(): number {
+  return manager?.size ?? 0;
+}
+
+export function getStreamStats(sessionId: string) {
+  return manager?.getStats(sessionId) ?? null;
+}
+
 export function stopWhipServer(ctx: UnloadPluginContext) {
   manager?.clear();
   failedAttempts.clear();

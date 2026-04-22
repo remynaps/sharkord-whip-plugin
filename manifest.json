@@ -5,5 +5,5 @@
   "description": "Stream OBS (or any WHIP client) directly into a Sharkord voice channel.",
   "homepage": "https://github.com/remynaps/sharkord-whip-plugin",
   "sdkVersion": 1,
-  "version": "0.0.5"
+  "version": "0.0.6"
 }
