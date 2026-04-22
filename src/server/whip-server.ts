@@ -1,4 +1,4 @@
-import type { PluginContext, PluginSettings } from '@sharkord/plugin-sdk';
+import type { PluginContext, PluginSettings, UnloadPluginContext } from '@sharkord/plugin-sdk';
 import { timingSafeEqual } from 'crypto';
 import { corsResponse } from './util.ts';
 import { escape, stripLow } from 'validator';
@@ -206,7 +206,7 @@ function handleWhipDelete(ctx: PluginContext, sessionId: string): Response {
   return new Response(null, { status: 200 });
 }
 
-export function stopWhipServer(ctx: PluginContext) {
+export function stopWhipServer(ctx: UnloadPluginContext) {
   manager?.clear();
   failedAttempts.clear();
   server?.stop();

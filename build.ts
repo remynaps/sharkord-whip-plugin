@@ -1,67 +1,30 @@
-import type { BunPlugin } from "bun";
+import { build } from "@sharkord/plugin-builder";
+import { PLUGIN_SDK_VERSION } from "@sharkord/plugin-sdk";
 import fs from "fs/promises";
+import path from "path";
 
-const pluginId = "sharkord-whip";
-const outdir = `dist/${pluginId}`;
+const copyPluginToSharkord = async (builtPluginPath: string) => {
+  // adjust if necessary
+  const sharkordPluginsPath = `${process.env.HOME}/.config/sharkord/plugins`;
+  const targetPluginPath = path.join(
+    sharkordPluginsPath,
+    path.basename(builtPluginPath),
+  );
 
-const clientGlobals: BunPlugin = {
-  name: "client-globals",
-  setup(build) {
-    // since the client bundle is meant to run in the host app's context
-    // we need to make sure it uses the same React instance as Sharkord instead of bundling its own copy
-    // we workaround this by rewriting bare react/react-dom imports to reference the host app's React globals, which Sharkord exposes on the window object
-    const globals: Record<string, string> = {
-      react: "window.__SHARKORD_REACT__",
-      "react/jsx-runtime": "window.__SHARKORD_REACT_JSX__",
-      "react/jsx-dev-runtime": "window.__SHARKORD_REACT_JSX_DEV__",
-      "react-dom": "window.__SHARKORD_REACT_DOM__",
-      "react-dom/client": "window.__SHARKORD_REACT_DOM_CLIENT__",
-    };
+  console.log(
+    `Copying built plugin from ${builtPluginPath} to ${targetPluginPath}...`,
+  );
 
-    for (const [mod, global] of Object.entries(globals)) {
-      build.onResolve(
-        { filter: new RegExp(`^${mod.replace("/", "\\/")}$`) },
-        () => ({
-          path: mod,
-          namespace: "client-global",
-        }),
-      );
+  await fs.rm(targetPluginPath, { recursive: true, force: true });
 
-      build.onLoad(
-        {
-          filter: new RegExp(`^${mod.replace("/", "\\/")}$`),
-          namespace: "client-global",
-        },
-        () => ({
-          contents: `module.exports = ${global};`,
-          loader: "js",
-        }),
-      );
-    }
-  },
+  await fs.cp(builtPluginPath, targetPluginPath, {
+    recursive: true,
+  });
 };
 
-await Promise.all([
-  Bun.build({
-    entrypoints: ["src/server.ts"],
-    outdir,
-    target: "bun",
-    minify: true,
-    format: "esm",
-    external: ["react", "react-dom"],
-  }),
+const result = await build({
+  sdkVersion: PLUGIN_SDK_VERSION,
+});
 
-  Bun.build({
-    entrypoints: ["src/client.ts"],
-    outdir,
-    target: "browser",
-    minify: true,
-    format: "esm",
-    plugins: [clientGlobals],
-    define: {
-     "process.env.NODE_ENV": '"production"',
-    },
-  }),
-]);
-
-await fs.copyFile("package.json", `${outdir}/package.json`);
+// uncomment the following line to move the built plugin directly to the Sharkord plugins directory, useful for development and testing
+// await copyPluginToSharkord(result.outDir);

@@ -29,13 +29,13 @@ export class WhipSessionManager {
     const sessionId = randomUUID();
     this.sessions.set(sessionId, null!); // hold the slot
 
-    const router = ctx.actions.voice.getRouter(channelId);
+    const router = ctx.voice.getRouter(channelId);
     if (!router) {
       this.sessions.delete(sessionId);
       throw new Error(`Voice channel ${channelId} has no active runtime. Someone must be in the channel before you can stream into it.`);
     }
 
-    const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
+    const { ip, announcedAddress } = ctx.voice.getListenInfo();
     const host = (announcedAddress ?? ip).replace(/^https?:\/\//i, '').replace(/\/+$/, '');
 
     const transport = await router.createWebRtcTransport({
@@ -61,7 +61,7 @@ export class WhipSessionManager {
 
       if (!audioProducer && !videoProducer) throw new Error('No usable media in SDP offer');
 
-      const streamHandle = ctx.actions.voice.createStream({
+      const streamHandle = ctx.voice.createStream({
         channelId,
         title,
         key: sessionId,

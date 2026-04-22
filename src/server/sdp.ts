@@ -146,9 +146,13 @@ export function buildSdpAnswer(opts: AnswerOptions): string {
     iceOptions: 'renomination',
   };
 
+
+  const offerSetup = parsedOffer.media[0]?.setup ?? parsedOffer.setup ?? 'actpass';
+  const answerSetup = offerSetup === 'passive' ? 'active' : 'passive';
+
   const sharedDtls = {
     fingerprint: { type: fingerprint.algorithm, hash: fingerprint.value },
-    setup: 'passive' as const, // OBS knocks, we open the door
+    setup: answerSetup as 'active' | 'passive',
   };
 
   const mediaAnswers = parsedOffer.media.map((offerMedia: MediaDescription) => ({
