@@ -1,6 +1,6 @@
 import type { Actions } from "../contracts/Actions.ts";
 import type { Commands } from "../contracts/Commands.ts";
-import { startWhipServer, stopWhipServer } from "../server/whip-server.ts";
+import { startWhipServer, stopWhipServer, getSessionCount, getStreamStats, listSessions } from "../server/whip-server.ts";
 import {
   createRegisterAction,
   createRegisterCommand,
@@ -97,6 +97,20 @@ const onLoad = async (ctx: PluginContext) => {
       type: "string",
       defaultValue: "OBS stream",
     },
+    {
+      key: "stream_avatar_url",
+      name: "Stream avatar URL",
+      description: "Avatar icon shown for the stream entry in the voice channel. Leave empty to use the default.",
+      type: "string",
+      defaultValue: "",
+    },
+    {
+      key: "show_stream_stats",
+      name: "Show stream stats panel",
+      description: "Show the stream stats button in the top bar while in a voice channel.",
+      type: "boolean",
+      defaultValue: false,
+    },
   ] as const);
 
   const rtpMinPort = settings.get("rtp_min_port") as number;
@@ -131,6 +145,23 @@ const onLoad = async (ctx: PluginContext) => {
       return await whipServerManager.stop(ctx);
     },
   );
+
+  registerAction("get_stream_info", async () => ({
+    activeStreams: getSessionCount(),
+    isRunning: whipServerManager.getIsRunning(),
+  }));
+
+  registerAction("get_stream_stats", async (_invoker, { sessionId }) => {
+    return await getStreamStats(sessionId);
+  });
+
+  registerAction("list_sessions", async () => listSessions());
+
+  registerAction("get_client_settings", async () => ({
+    showStreamStats: settings.get("show_stream_stats") as boolean,
+  }));
+
+  ctx.ui.enable();
 
   ctx.log(
     "sharkord-whip: ready ✔ (run /whip_start to begin accepting streams)",
