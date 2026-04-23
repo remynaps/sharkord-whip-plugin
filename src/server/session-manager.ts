@@ -27,6 +27,7 @@ export class WhipSessionManager {
     rtpMinPort: number,
     rtpMaxPort: number,
     maxStreams: number,
+    avatarUrl?: string,
   ) {
     // check and reserve the slot before any awaits to prevent a race condition
     // where two concurrent requests both pass the limit check before either
@@ -95,6 +96,7 @@ export class WhipSessionManager {
         channelId,
         title,
         key: sessionId,
+        avatarUrl,
         producers: { audio: audioProducer, video: videoProducer },
       });
 

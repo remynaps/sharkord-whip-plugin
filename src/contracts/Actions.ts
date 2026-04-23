@@ -13,6 +13,10 @@ type Actions = {
     payload: { sessionId: string };
     response: StreamStats | null;
   };
+  get_client_settings: {
+    payload: void;
+    response: { showStreamStats: boolean };
+  };
 };
 
 export type { Actions };

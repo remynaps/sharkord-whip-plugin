@@ -191,6 +191,7 @@ async function handleWhipOffer(
   // max streams is enforced inside createSession so the check and the slot
   // reservation happen atomically before any async work.
   const maxStreams = settings.get("max_streams") as number;
+  const avatarUrl = (settings.get("stream_avatar_url") as string) || undefined;
 
   try {
     const { sessionId, sdp } = await manager!.createSession(
@@ -201,6 +202,7 @@ async function handleWhipOffer(
       rtpMinPort,
       rtpMaxPort,
       maxStreams,
+      avatarUrl,
     );
 
     return new Response(sdp, {

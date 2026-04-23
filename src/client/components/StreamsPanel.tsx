@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from "react";
+
 import { Tv, Video, Mic } from "lucide-react";
 import {
   Button,
@@ -170,10 +171,6 @@ const StreamsPanel = memo(() => {
   const currentVoiceChannelId = useCurrentVoiceChannelId();
   const callAction = useCallAction();
 
-  const channelSessions = sessions.filter(
-    (s) => currentVoiceChannelId == null || s.channelId === currentVoiceChannelId,
-  );
-
   useEffect(() => {
     if (!open) {
       setSessions([]);
@@ -210,6 +207,12 @@ const StreamsPanel = memo(() => {
     const id = setInterval(poll, 2000);
     return () => clearInterval(id);
   }, [selectedId, open]);
+
+  if (!currentVoiceChannelId) return null;
+
+  const channelSessions = sessions.filter(
+    (s) => s.channelId === currentVoiceChannelId,
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -262,4 +265,18 @@ const StreamsPanel = memo(() => {
   );
 });
 
-export { StreamsPanel };
+const StreamsPanelGuard = memo(() => {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const callAction = useCallAction();
+
+  useEffect(() => {
+    callAction("get_client_settings").then(({ showStreamStats }) =>
+      setEnabled(showStreamStats),
+    );
+  }, []);
+
+  if (!enabled) return null;
+  return <StreamsPanel />;
+});
+
+export { StreamsPanelGuard as StreamsPanel };
