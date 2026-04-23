@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from "react";
 
 import { Tv, Video, Mic } from "lucide-react";
 import {
+  Badge,
   Button,
   Popover,
   PopoverContent,
@@ -27,17 +28,23 @@ const lossColor = (fraction: number) => {
   return "text-red-500";
 };
 
-const connectionColor = (state: string) =>
-  state === "connected" ? "text-green-500"
-  : state === "new" || state === "connecting" ? "text-yellow-500"
-  : "text-red-500";
+const connectionBadgeClass = (state: string) =>
+  state === "connected" || state === "completed"
+    ? "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20"
+    : state === "new" || state === "connecting" || state === "checking"
+    ? "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20"
+    : "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20";
 
 const LiveDot = ({ size = "md" }: { size?: "sm" | "md" }) => (
   <span className={`inline-flex rounded-full bg-red-500 animate-pulse shrink-0 ${size === "sm" ? "h-1.5 w-1.5" : "h-2 w-2"}`} />
 );
 
-const scoreEmoji = (score: number) =>
-  score >= 8 ? "🟢" : score >= 5 ? "🟡" : "🔴";
+const qualityBadgeClass = (score: number) =>
+  score >= 8
+    ? "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20"
+    : score >= 5
+    ? "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20"
+    : "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20";
 
 const StatsSkeleton = () => (
   <div className="flex flex-col gap-2 animate-pulse">
@@ -47,12 +54,47 @@ const StatsSkeleton = () => (
   </div>
 );
 
+const Sparkline = ({ data, id, stroke, label }: { data: number[]; id: string; stroke: string; label: string }) => {
+  const W = 240, H = 36;
+  const gid = `sg-${id}`;
+
+  let graph: React.ReactNode = <div className="w-full rounded-sm bg-muted/40 animate-pulse" style={{ height: H }} />;
+  if (data.length >= 2) {
+    const max = Math.max(...data, 1);
+    const xs = data.map((_, i) => (i / (data.length - 1)) * W);
+    const ys = data.map((v) => H - (v / max) * (H - 2) - 1);
+    const line = xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${ys[i]!.toFixed(1)}`).join("");
+    const area = `${line}L${W},${H}L0,${H}Z`;
+    graph = (
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" height={H} preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill={`url(#${gid})`} />
+        <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">{label}</span>
+      {graph}
+    </div>
+  );
+};
+
 const StatsView = ({
   stats,
+  history,
   title,
   onBack,
 }: {
   stats: StreamStats | null;
+  history: StreamStats[];
   title: string;
   onBack?: () => void;
 }) => (
@@ -81,19 +123,22 @@ const StatsView = ({
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
             Connection
           </p>
-          <div className="grid grid-cols-2 items-center gap-x-4 gap-y-1.5 text-xs">
+          <div className="grid grid-cols-2 items-center gap-x-4 text-xs" style={{ rowGap: '10px' }}>
             <span className="text-muted-foreground">Bitrate</span>
             <span className="tabular-nums font-medium">
               {formatBitrate(stats.transport.recvBitrate)}
             </span>
             <span className="text-muted-foreground">ICE</span>
-            <span className={`font-medium ${connectionColor(stats.transport.iceState)}`}>
+            <Badge className={connectionBadgeClass(stats.transport.iceState)}>
               {stats.transport.iceState}
-            </span>
+            </Badge>
             <span className="text-muted-foreground">DTLS</span>
-            <span className={`font-medium ${connectionColor(stats.transport.dtlsState)}`}>
+            <Badge className={connectionBadgeClass(stats.transport.dtlsState)}>
               {stats.transport.dtlsState}
-            </span>
+            </Badge>
+          </div>
+          <div className="mt-2">
+            <Sparkline data={history.map((h) => h.transport.recvBitrate)} id="transport" stroke="#fbbf24" label="bitrate" />
           </div>
         </div>
 
@@ -108,7 +153,7 @@ const StatsView = ({
                   {stats.video.mimeType.replace("video/", "")}
                 </span>
               </p>
-              <div className="grid grid-cols-2 items-center gap-x-4 gap-y-1.5 text-xs">
+              <div className="grid grid-cols-2 items-center gap-x-4 text-xs" style={{ rowGap: '10px' }}>
                 <span className="text-muted-foreground">Bitrate</span>
                 <span className="tabular-nums font-medium">
                   {formatBitrate(stats.video.bitrate)}
@@ -118,11 +163,14 @@ const StatsView = ({
                   {(stats.video.fractionLost * 100).toFixed(1)}%
                 </span>
                 <span className="text-muted-foreground">Quality</span>
-                <span>{scoreEmoji(stats.video.score)}</span>
+                <Badge className={`${qualityBadgeClass(stats.video.score)}`}>{stats.video.score}/10</Badge>
                 <span className="text-muted-foreground">PLI / NACK</span>
                 <span className="tabular-nums text-muted-foreground">
                   {stats.video.pliCount} / {stats.video.nackCount}
                 </span>
+              </div>
+              <div className="mt-2">
+                <Sparkline data={history.flatMap((h) => h.video ? [h.video.bitrate] : [])} id="video-br" stroke="#60a5fa" label="bitrate" />
               </div>
             </div>
           </>
@@ -139,7 +187,7 @@ const StatsView = ({
                   {stats.audio.mimeType.replace("audio/", "")}
                 </span>
               </p>
-              <div className="grid grid-cols-2 items-center gap-x-4 gap-y-1.5 text-xs">
+              <div className="grid grid-cols-2 items-center gap-x-4 text-xs" style={{ rowGap: '10px' }}>
                 <span className="text-muted-foreground">Bitrate</span>
                 <span className="tabular-nums font-medium">
                   {formatBitrate(stats.audio.bitrate)}
@@ -153,7 +201,10 @@ const StatsView = ({
                   {(stats.audio.fractionLost * 100).toFixed(1)}%
                 </span>
                 <span className="text-muted-foreground">Quality</span>
-                <span>{scoreEmoji(stats.audio.score)}</span>
+                <Badge className={`${qualityBadgeClass(stats.audio.score)}`}>{stats.audio.score}/10</Badge>
+              </div>
+              <div className="mt-2">
+                <Sparkline data={history.flatMap((h) => h.audio ? [h.audio.bitrate] : [])} id="audio-br" stroke="#34d399" label="bitrate" />
               </div>
             </div>
           </>
@@ -168,6 +219,7 @@ const StreamsPanel = memo(() => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats | null>(null);
+  const [statsHistory, setStatsHistory] = useState<StreamStats[]>([]);
   const currentVoiceChannelId = useCurrentVoiceChannelId();
   const callAction = useCallAction();
 
@@ -176,6 +228,7 @@ const StreamsPanel = memo(() => {
       setSessions([]);
       setSelectedId(null);
       setStats(null);
+      setStatsHistory([]);
       return;
     }
 
@@ -201,8 +254,12 @@ const StreamsPanel = memo(() => {
 
   useEffect(() => {
     if (!selectedId || !open) return;
+    setStatsHistory([]);
     const poll = () =>
-      callAction("get_stream_stats", { sessionId: selectedId }).then(setStats);
+      callAction("get_stream_stats", { sessionId: selectedId }).then((s) => {
+        setStats(s);
+        if (s) setStatsHistory((prev) => [...prev.slice(-29), s]);
+      });
     poll();
     const id = setInterval(poll, 2000);
     return () => clearInterval(id);
@@ -235,12 +292,14 @@ const StreamsPanel = memo(() => {
         ) : selectedId ? (
           <StatsView
             stats={stats}
+            history={statsHistory}
             title={sessions.find((s) => s.sessionId === selectedId)?.title ?? ""}
             onBack={
               channelSessions.length > 1
                 ? () => {
                     setSelectedId(null);
                     setStats(null);
+                    setStatsHistory([]);
                   }
                 : undefined
             }
