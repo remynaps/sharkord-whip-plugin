@@ -7,6 +7,7 @@ export class WhipSession {
     public readonly id: string,
     public readonly channelId: number,
     public readonly title: string,
+    public readonly avatarUrl: string | undefined,
     public readonly transport: WebRtcTransport,
     public readonly audioProducer: Producer | undefined,
     public readonly videoProducer: Producer | undefined,

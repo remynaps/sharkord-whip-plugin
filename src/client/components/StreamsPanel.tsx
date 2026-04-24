@@ -2,6 +2,9 @@ import { memo, useEffect, useState } from "react";
 
 import { Tv, Video, Mic } from "lucide-react";
 import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   Badge,
   Button,
   Popover,
@@ -54,7 +57,7 @@ const StatsSkeleton = () => (
   </div>
 );
 
-const Sparkline = ({ data, id, stroke, label }: { data: number[]; id: string; stroke: string; label: string }) => {
+const Sparkline = ({ data, id, stroke, label }: { data: number[]; id: string; stroke: string; label?: string }) => {
   const W = 240, H = 36;
   const gid = `sg-${id}`;
 
@@ -81,7 +84,7 @@ const Sparkline = ({ data, id, stroke, label }: { data: number[]; id: string; st
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">{label}</span>
+      {label && <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">{label}</span>}
       {graph}
     </div>
   );
@@ -123,22 +126,22 @@ const StatsView = ({
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
             Connection
           </p>
-          <div className="grid grid-cols-2 items-center gap-x-4 text-xs" style={{ rowGap: '10px' }}>
-            <span className="text-muted-foreground">Bitrate</span>
-            <span className="tabular-nums font-medium">
-              {formatBitrate(stats.transport.recvBitrate)}
-            </span>
-            <span className="text-muted-foreground">ICE</span>
-            <Badge className={connectionBadgeClass(stats.transport.iceState)}>
-              {stats.transport.iceState}
-            </Badge>
-            <span className="text-muted-foreground">DTLS</span>
-            <Badge className={connectionBadgeClass(stats.transport.dtlsState)}>
-              {stats.transport.dtlsState}
-            </Badge>
+          <div className="flex flex-col gap-1 text-xs mb-2">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Bitrate</span>
+              <span className="tabular-nums font-medium">{formatBitrate(stats.transport.recvBitrate)}</span>
+            </div>
+            <Sparkline data={history.map((h) => h.transport.recvBitrate)} id="transport" stroke="#fbbf24" />
           </div>
-          <div className="mt-2">
-            <Sparkline data={history.map((h) => h.transport.recvBitrate)} id="transport" stroke="#fbbf24" label="bitrate" />
+          <div className="flex flex-col gap-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">ICE</span>
+              <Badge className={connectionBadgeClass(stats.transport.iceState)}>{stats.transport.iceState}</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">DTLS</span>
+              <Badge className={connectionBadgeClass(stats.transport.dtlsState)}>{stats.transport.dtlsState}</Badge>
+            </div>
           </div>
         </div>
 
@@ -153,24 +156,26 @@ const StatsView = ({
                   {stats.video.mimeType.replace("video/", "")}
                 </span>
               </p>
-              <div className="grid grid-cols-2 items-center gap-x-4 text-xs" style={{ rowGap: '10px' }}>
-                <span className="text-muted-foreground">Bitrate</span>
-                <span className="tabular-nums font-medium">
-                  {formatBitrate(stats.video.bitrate)}
-                </span>
-                <span className="text-muted-foreground">Packet loss</span>
-                <span className={`tabular-nums font-medium ${lossColor(stats.video.fractionLost)}`}>
-                  {(stats.video.fractionLost * 100).toFixed(1)}%
-                </span>
-                <span className="text-muted-foreground">Quality</span>
-                <Badge className={`${qualityBadgeClass(stats.video.score)}`}>{stats.video.score}/10</Badge>
-                <span className="text-muted-foreground">PLI / NACK</span>
-                <span className="tabular-nums text-muted-foreground">
-                  {stats.video.pliCount} / {stats.video.nackCount}
-                </span>
+              <div className="flex flex-col gap-1 text-xs mb-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Bitrate</span>
+                  <span className="tabular-nums font-medium">{formatBitrate(stats.video.bitrate)}</span>
+                </div>
+                <Sparkline data={history.flatMap((h) => h.video ? [h.video.bitrate] : [])} id="video-br" stroke="#60a5fa" />
               </div>
-              <div className="mt-2">
-                <Sparkline data={history.flatMap((h) => h.video ? [h.video.bitrate] : [])} id="video-br" stroke="#60a5fa" label="bitrate" />
+              <div className="flex flex-col gap-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Packet loss</span>
+                  <span className={`tabular-nums font-medium ${lossColor(stats.video.fractionLost)}`}>{(stats.video.fractionLost * 100).toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Quality</span>
+                  <Badge className={qualityBadgeClass(stats.video.score)}>{stats.video.score}/10</Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">PLI / NACK</span>
+                  <span className="tabular-nums text-muted-foreground">{stats.video.pliCount} / {stats.video.nackCount}</span>
+                </div>
               </div>
             </div>
           </>
@@ -187,24 +192,26 @@ const StatsView = ({
                   {stats.audio.mimeType.replace("audio/", "")}
                 </span>
               </p>
-              <div className="grid grid-cols-2 items-center gap-x-4 text-xs" style={{ rowGap: '10px' }}>
-                <span className="text-muted-foreground">Bitrate</span>
-                <span className="tabular-nums font-medium">
-                  {formatBitrate(stats.audio.bitrate)}
-                </span>
-                <span className="text-muted-foreground">Jitter</span>
-                <span className="tabular-nums font-medium">
-                  {stats.audio.jitter.toFixed(2)} ms
-                </span>
-                <span className="text-muted-foreground">Packet loss</span>
-                <span className={`tabular-nums font-medium ${lossColor(stats.audio.fractionLost)}`}>
-                  {(stats.audio.fractionLost * 100).toFixed(1)}%
-                </span>
-                <span className="text-muted-foreground">Quality</span>
-                <Badge className={`${qualityBadgeClass(stats.audio.score)}`}>{stats.audio.score}/10</Badge>
+              <div className="flex flex-col gap-1 text-xs mb-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Bitrate</span>
+                  <span className="tabular-nums font-medium">{formatBitrate(stats.audio.bitrate)}</span>
+                </div>
+                <Sparkline data={history.flatMap((h) => h.audio ? [h.audio.bitrate] : [])} id="audio-br" stroke="#34d399" />
               </div>
-              <div className="mt-2">
-                <Sparkline data={history.flatMap((h) => h.audio ? [h.audio.bitrate] : [])} id="audio-br" stroke="#34d399" label="bitrate" />
+              <div className="flex flex-col gap-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Jitter</span>
+                  <span className="tabular-nums font-medium">{stats.audio.jitter.toFixed(2)} ms</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Packet loss</span>
+                  <span className={`tabular-nums font-medium ${lossColor(stats.audio.fractionLost)}`}>{(stats.audio.fractionLost * 100).toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Quality</span>
+                  <Badge className={qualityBadgeClass(stats.audio.score)}>{stats.audio.score}/10</Badge>
+                </div>
               </div>
             </div>
           </>
@@ -307,15 +314,21 @@ const StreamsPanel = memo(() => {
         ) : (
           <div className="flex flex-col gap-1">
             {channelSessions.map((s) => (
-              <Button
+              <button
                 key={s.sessionId}
-                variant="ghost"
-                className="w-full justify-start gap-2"
                 onClick={() => setSelectedId(s.sessionId)}
+                className="flex items-center gap-3 w-full rounded-md p-2 hover:bg-accent transition-colors text-left"
               >
-                <LiveDot />
-                {s.title}
-              </Button>
+                <Avatar className="size-8 shrink-0">
+                  <AvatarImage src={s.avatarUrl} />
+                  <AvatarFallback><Tv className="h-4 w-4 text-muted-foreground" /></AvatarFallback>
+                </Avatar>
+                <span className="flex-1 text-sm font-medium truncate">{s.title}</span>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                  <LiveDot size="sm" />
+                  live
+                </div>
+              </button>
             ))}
           </div>
         )}

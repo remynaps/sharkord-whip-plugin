@@ -3,7 +3,7 @@ import type { StreamStats } from "./StreamStats.ts";
 type Actions = {
   list_sessions: {
     payload: void;
-    response: Array<{ sessionId: string; title: string; channelId: number }>;
+    response: Array<{ sessionId: string; title: string; channelId: number; avatarUrl?: string }>;
   };
   get_stream_info: {
     payload: void;

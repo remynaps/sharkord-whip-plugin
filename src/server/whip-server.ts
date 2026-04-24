@@ -17,6 +17,7 @@ let manager: WhipSessionManager | null = null;
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 60_000; // 1 minute
+const MAX_BODY_BYTES = 65_536; // 64 KB. This is way larger then any actual SDP offer should be.
 
 export function checkRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -37,6 +38,22 @@ export function recordFailedAttempt(ip: string) {
 
 export function clearFailedAttempts(ip: string) {
   failedAttempts.delete(ip);
+}
+
+function evictExpiredRateLimitEntries() {
+  const now = Date.now();
+  for (const [ip, entry] of failedAttempts) {
+    if (now > entry.resetAt) failedAttempts.delete(ip);
+  }
+}
+
+function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>): string {
+  // prefer the real socket IP — cannot be spoofed
+  const socketIp = server.requestIP(req)?.address;
+  if (socketIp) return socketIp;
+  // fall back to x-forwarded-for (first entry only) when behind a proxy
+  const forwarded = req.headers.get("x-forwarded-for");
+  return forwarded ? (forwarded.split(",")[0]!.trim()) : "unknown";
 }
 
 // constant-time comparison to prevent timing attacks on the stream key
@@ -73,7 +90,7 @@ export function startWhipServer(
 
   server = Bun.serve({
     port,
-    async fetch(req) {
+    async fetch(req, server) {
       if (req.method === "OPTIONS") {
         return corsResponse(new Response(null, { status: 204 }));
       }
@@ -94,11 +111,13 @@ export function startWhipServer(
       const title = sanitizeTitle(rawTitle);
 
       if (req.method === "POST" && whipPart === "whip" && parts.length === 2) {
+        evictExpiredRateLimitEntries();
         return corsResponse(
           await handleWhipOffer(
             ctx,
             settings,
             req,
+            server,
             channelId!,
             title,
             rtpMinPort,
@@ -153,6 +172,7 @@ async function handleWhipOffer(
   ctx: PluginContext,
   settings: WhipSettings,
   req: Request,
+  server: ReturnType<typeof Bun.serve>,
   channelIdStr: string,
   title: string,
   rtpMinPort: number,
@@ -161,7 +181,7 @@ async function handleWhipOffer(
   const expectedKey = settings.get("stream_key") as string;
   const auth = req.headers.get("Authorization") ?? "";
   const providedKey = auth.startsWith("Bearer ") ? auth.slice(7) : auth;
-  const clientIp = req.headers.get("x-forwarded-for") ?? "unknown";
+  const clientIp = getClientIp(req, server);
 
   if (expectedKey) {
     if (!checkRateLimit(clientIp)) {
@@ -181,7 +201,15 @@ async function handleWhipOffer(
     return new Response("Bad channel ID", { status: 400 });
   }
 
+  const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (contentLength > MAX_BODY_BYTES) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
+
   const offerSdp = await req.text();
+  if (offerSdp.length > MAX_BODY_BYTES) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
   if (!offerSdp.startsWith("v=0")) {
     return new Response("Expected SDP offer body", { status: 400 });
   }
@@ -214,10 +242,11 @@ async function handleWhipOffer(
     });
   } catch (err) {
     ctx.error("WHIP: failed to set up stream:", err);
-    const msg = err instanceof Error ? err.message : JSON.stringify(err);
-    // send 503 for the stream limit error so OBS knows to back off
-    const status = msg.startsWith("Stream limit") ? 503 : 500;
-    return new Response(msg, { status });
+    const isStreamLimit = err instanceof Error && err.message.startsWith("Stream limit");
+    // send 503 for stream limit so OBS knows to back off; don't leak internal error details
+    return new Response(isStreamLimit ? err.message : "Internal Server Error", {
+      status: isStreamLimit ? 503 : 500,
+    });
   }
 }
 
