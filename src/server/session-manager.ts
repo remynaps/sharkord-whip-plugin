@@ -108,6 +108,7 @@ export class WhipSessionManager {
         sessionId,
         channelId,
         title,
+        avatarUrl,
         transport,
         audioProducer,
         videoProducer,
@@ -151,6 +152,7 @@ export class WhipSessionManager {
         sessionId,
         channelId: s.channelId,
         title: s.title,
+        avatarUrl: s.avatarUrl,
       }));
   }
 
