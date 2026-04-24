@@ -14,8 +14,7 @@ import {
 } from "@sharkord/ui";
 import { useCallAction, useCurrentVoiceChannelId } from "../store/hooks";
 import { useObs } from "../hooks/useObs";
-import { ObsSetupModal, loadObsVideoSettings } from "./ObsSetupModal";
-import type { ObsVideoSettings } from "../hooks/useObs";
+import { ObsSetupModal } from "./ObsSetupModal";
 import type { Actions } from "../../contracts/Actions";
 import type { StreamStats } from "../../contracts/StreamStats";
 
@@ -227,7 +226,7 @@ const StatsView = ({
 const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { obsPassword: string; obsEnabled: boolean; serverUrl: string; streamKey: string }) => {
   const [open, setOpen] = useState(false);
   const [obsSetupOpen, setObsSetupOpen] = useState(false);
-  const [obsVideoSettings, setObsVideoSettings] = useState<ObsVideoSettings>(loadObsVideoSettings);
+
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats | null>(null);
@@ -324,7 +323,7 @@ const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { 
                 ) : obs.hasSharkordProfile ? (
                   <Button
                     size="sm"
-                    onClick={() => obs.goLive(`${serverUrl}/whip/${currentVoiceChannelId}`, streamKey, obsVideoSettings)}
+                    onClick={() => obs.goLive(`${serverUrl}/whip/${currentVoiceChannelId}`, streamKey)}
                   >
                     Go Live
                   </Button>
@@ -385,10 +384,7 @@ const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { 
       open={obsSetupOpen}
       onOpenChange={setObsSetupOpen}
       serverUrl={serverUrl}
-      onSetup={async (settings) => {
-        await obs.setupProfile();
-        setObsVideoSettings(settings);
-      }}
+      onSetup={(settings) => obs.setupProfile(settings)}
     />
     </>
   );

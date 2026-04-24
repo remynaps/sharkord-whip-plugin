@@ -12,8 +12,8 @@ export type ObsState = {
   status: ObsStatus;
   streaming: boolean;
   hasSharkordProfile: boolean;
-  setupProfile: () => Promise<void>;
-  goLive: (whipUrl: string, streamKey: string, videoSettings: ObsVideoSettings) => Promise<void>;
+  setupProfile: (videoSettings: ObsVideoSettings) => Promise<void>;
+  goLive: (whipUrl: string, streamKey: string) => Promise<void>;
   stopStream: () => void;
 };
 
@@ -155,21 +155,16 @@ export function useObs(password?: string, enabled = true): ObsState {
     };
   }, [enabled]);
 
-  const setupProfile = async () => {
+  const setupProfile = async (videoSettings: ObsVideoSettings) => {
+    const profileData = await fetchProfiles();
+    const previousProfile = profileData?.currentProfileName ?? null;
+
     await request("CreateProfile", { profileName: PROFILE_NAME });
     await fetchProfiles();
-  };
 
-  const goLive = async (whipUrl: string, streamKey: string, videoSettings: ObsVideoSettings) => {
-    const profileData = await fetchProfiles();
-    if (!profileData?.profiles.includes(PROFILE_NAME)) return;
-    originalProfileRef.current = profileData.currentProfileName;
-
-    if (profileData.currentProfileName !== PROFILE_NAME) {
-      const profileReady = new Promise<void>((resolve) => { profileChangedResolveRef.current = resolve; });
-      await request("SetCurrentProfile", { profileName: PROFILE_NAME });
-      await profileReady;
-    }
+    const profileReady = new Promise<void>((resolve) => { profileChangedResolveRef.current = resolve; });
+    await request("SetCurrentProfile", { profileName: PROFILE_NAME });
+    await profileReady;
 
     const [width, height] = videoSettings.resolution.split("x").map(Number);
     await request("SetVideoSettings", {
@@ -182,7 +177,40 @@ export function useObs(password?: string, enabled = true): ObsState {
       parameterName: "StreamEncoder",
       parameterValue: videoSettings.codec,
     });
+    await request("SetProfileParameter", {
+      parameterCategory: "SimpleOutput",
+      parameterName: "StreamAudioEncoder",
+      parameterValue: "ffmpeg_opus",
+    });
 
+    // Write whip_custom into the profile's service.json so OBS initialises the
+    // WHIP output (not RTMP) the next time this profile is loaded.
+    await request("SetStreamServiceSettings", {
+      streamServiceType: "whip_custom",
+      streamServiceSettings: { server: "http://placeholder", bearer_token: "" },
+    });
+
+    if (previousProfile && previousProfile !== PROFILE_NAME) {
+      const restoreReady = new Promise<void>((resolve) => { profileChangedResolveRef.current = resolve; });
+      await request("SetCurrentProfile", { profileName: previousProfile });
+      await restoreReady;
+    }
+  };
+
+  const goLive = async (whipUrl: string, streamKey: string) => {
+    const profileData = await fetchProfiles();
+    if (!profileData?.profiles.includes(PROFILE_NAME)) return;
+    originalProfileRef.current = profileData.currentProfileName;
+
+    if (profileData.currentProfileName !== PROFILE_NAME) {
+      const profileReady = new Promise<void>((resolve) => { profileChangedResolveRef.current = resolve; });
+      await request("SetCurrentProfile", { profileName: PROFILE_NAME });
+      await profileReady;
+    }
+
+    // Set the whip streaming settings when we go live.
+    // Wow thats weird! yeah. But i want to simulate discord. click stream in a channel -> stream starts
+    // To do that, we need to set the stream url with the channel id every time.
     await request("SetStreamServiceSettings", {
       streamServiceType: "whip_custom",
       streamServiceSettings: { server: whipUrl, bearer_token: streamKey },
