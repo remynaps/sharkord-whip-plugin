@@ -15,7 +15,7 @@ type Actions = {
   };
   get_client_settings: {
     payload: void;
-    response: { showStreamStats: boolean };
+    response: { showStreamStats: boolean; showObsControls: boolean; obsWebsocketPassword: string; serverUrl: string; streamKey: string };
   };
 };
 

@@ -105,6 +105,27 @@ const onLoad = async (ctx: PluginContext) => {
       defaultValue: "",
     },
     {
+      key: "show_obs_controls",
+      name: "Show OBS controls",
+      description: "Show OBS connection status and Go Live button in the stream panel.",
+      type: "boolean",
+      defaultValue: false,
+    },
+    {
+      key: "obs_websocket_password",
+      name: "OBS WebSocket password",
+      description: "Password for OBS WebSocket (port 4455). Leave empty if authentication is disabled in OBS.",
+      type: "string",
+      defaultValue: "",
+    },
+    {
+      key: "server_url",
+      name: "Server URL",
+      description: "Base URL of this WHIP server as OBS can reach it (e.g. http://192.168.1.10:8088). Used when auto-configuring OBS.",
+      type: "string",
+      defaultValue: "http://localhost:8088",
+    },
+    {
       key: "show_stream_stats",
       name: "Show stream stats panel",
       description: "Show the stream stats button in the top bar while in a voice channel.",
@@ -159,6 +180,10 @@ const onLoad = async (ctx: PluginContext) => {
 
   registerAction("get_client_settings", async () => ({
     showStreamStats: settings.get("show_stream_stats") as boolean,
+    showObsControls: settings.get("show_obs_controls") as boolean,
+    obsWebsocketPassword: settings.get("obs_websocket_password") as string,
+    serverUrl: (settings.get("server_url") as string).replace(/\/+$/, ""),
+    streamKey: settings.get("stream_key") as string,
   }));
 
   ctx.ui.enable();
