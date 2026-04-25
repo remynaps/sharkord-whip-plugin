@@ -63,47 +63,74 @@ sudo ethtool -K docker0 tx-checksumming off
 
 ### 4. Plugin settings
 
-| Setting                | Description                                                | Default      |
-| ---------------------- | ---------------------------------------------------------- | ------------ |
-| WHIP Port              | Port for the HTTP signaling server                         | `8088`       |
-| Stream Key             | Bearer token OBS sends for auth                            | `changeme`   |
-| Public URL             | Your reverse proxy URL (e.g. `https://stream.example.com`) | _(empty)_    |
-| RTP Min Port           | Start of media port range, must match Docker `-p`          | `40000`      |
-| RTP Max Port           | End of media port range, must match Docker `-p`            | `40020`      |
-| Max Concurrent Streams | Max simultaneous OBS streams. 0 = unlimited                | `5`          |
-| Stream Name            | Default stream name shown in the channel                   | `OBS Stream` |
+| Setting | Description | Default |
+| --- | --- | --- |
+| WHIP Port | Port for the HTTP signaling server | `8088` |
+| Stream Key | Bearer token OBS sends for auth | `changeme` |
+| Server URL | Base URL OBS can reach this server at (e.g. `http://192.168.1.10:8088`). Used when auto-configuring OBS. | `http://localhost:8088` |
+| RTP Min Port | Start of media port range, must match Docker `-p` | `40000` |
+| RTP Max Port | End of media port range, must match Docker `-p` | `40020` |
+| Max Concurrent Streams | Max simultaneous OBS streams. 0 = unlimited | `5` |
+| Stream Name | Default stream name shown in the channel | `OBS Stream` |
+| Show OBS controls | Show the Go Live button in the Sharkord topbar | `false` |
+| OBS WebSocket password | Password for OBS WebSocket (port 4455). Leave empty if auth is disabled in OBS. | _(empty)_ |
+| Show stream stats panel | Show the stream stats button in the topbar while in a voice channel | `false` |
 
-### 5. OBS settings
+### 5. OBS setup
 
-Go to **Settings -> Stream**:
+There are two ways to set up OBS. The easy way uses the built-in controls.
+
+**Easy way (recommended)**
+
+1. Enable **Show OBS controls** in the plugin settings.
+2. In OBS, go to **Tools > obs-websocket Settings** and make sure it's enabled. If you set a password, add it to the plugin settings too.
+3. Set the **Server URL** to the address OBS can reach your Sharkord server at. If OBS and Sharkord are on the same machine you can leave it as `http://localhost:8088`.
+4. A cast icon will appear in the Sharkord topbar. Click it and hit **Set up OBS**.
+5. Pick your resolution, frame rate, and encoder. Click **Set up** and the plugin will create a `Sharkord` profile in OBS with all the right settings.
+
+That's it. From now on you just join a voice channel and click **Go Live**.
+
+> [!NOTE]
+> WHIP uses WebRTC which only supports Opus audio. After running setup, go into OBS under the Sharkord profile and make sure your audio track is set to Opus. AAC will not work and will produce garbled audio. I couldn't find a reliable way to set this automatically.
+
+**Manual way**
+
+If you prefer to configure OBS yourself, go to **Settings -> Stream**:
 
 ```
 Service:      WHIP
-Server:       https://stream.example.com/whip/<channel_id>
+Server:       http://your-server:8088/whip/<channel_id>
 Bearer Token: <your stream key>
 ```
 
 Get the exact URL for your current channel with `/whip_info` in Sharkord.
 
-**Custom stream name**
-
-You can set a custom name for your stream by appending `?title=` to the server URL:
+You can set a custom stream name by appending `?title=` to the server URL:
 
 ```
-https://stream.example.com/whip/3?title=Tinkywinky%27s%20Stream
+http://your-server:8088/whip/3?title=My%20Stream
 ```
 
-If not set, it falls back to the Stream Title setting, then to `OBS Stream`.
+---
+
+## OBS controls
+
+When **Show OBS controls** is enabled, a cast icon appears in the Sharkord topbar. Clicking it opens a small panel showing the OBS connection status and a **Go Live** button.
+
+- The plugin connects to OBS via WebSocket on `localhost:4455` when you open the panel.
+- Clicking **Go Live** switches OBS to the Sharkord profile, sets the WHIP URL for the current voice channel, and starts the stream.
+- When you click **Stop**, OBS stops the stream and switches back to whatever profile you had before.
+- While live, the panel shows how long you've been streaming and your dropped frame percentage.
 
 ---
 
 ## Commands
 
-| Command                   | What it does                               |
-| ------------------------- | ------------------------------------------ |
-| `/whip_start`             | Start the WHIP server                      |
-| `/whip_stop`              | Stop the server and end all active streams |
-| `/whip_info [channel_id]` | Show OBS connection details for a channel  |
+| Command | What it does |
+| --- | --- |
+| `/whip_start` | Start the WHIP server |
+| `/whip_stop` | Stop the server and end all active streams |
+| `/whip_info [channel_id]` | Show OBS connection details for a channel |
 
 ---
 
@@ -145,3 +172,15 @@ The max concurrent streams limit was hit. Either stop an existing stream first o
 **High CPU**
 
 mediasoup forwards RTP packets without transcoding so CPU scales with bitrate not resolution. If it's higher than expected, check `top` inside the container to see what's actually eating it.
+
+**OBS panel shows "no connection"**
+
+Make sure OBS is running and obs-websocket is enabled under **Tools > obs-websocket Settings**. The plugin connects to `localhost:4455` when you open the panel. If you set a password in OBS, add it to the plugin settings.
+
+**Go Live button is greyed out**
+
+You need to be in a voice channel first. Join one and the button will become clickable.
+
+**Audio is garbled after going live**
+
+WHIP uses WebRTC which requires Opus audio. Open OBS, switch to the Sharkord profile, and change the audio encoder to Opus. AAC won't work with WHIP.
