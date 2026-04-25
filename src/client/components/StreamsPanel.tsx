@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from "react";
 
-import { Tv, Video, Mic, Radio } from "lucide-react";
+import { Tv, Video, Mic } from "lucide-react";
 import {
   Avatar,
   AvatarFallback,
@@ -12,9 +12,7 @@ import {
   PopoverTrigger,
   Separator,
 } from "@sharkord/ui";
-import { useCallAction, useCurrentVoiceChannelId } from "../store/hooks";
-import { useObs } from "../hooks/useObs";
-import { ObsSetupModal } from "./ObsSetupModal";
+import { useCallAction, useCurrentVoiceChannel, useCurrentVoiceChannelId } from "../store/hooks";
 import type { Actions } from "../../contracts/Actions";
 import type { StreamStats } from "../../contracts/StreamStats";
 
@@ -223,17 +221,15 @@ const StatsView = ({
   </div>
 );
 
-const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { obsPassword: string; obsEnabled: boolean; serverUrl: string; streamKey: string }) => {
+const StreamsPanel = memo(() => {
   const [open, setOpen] = useState(false);
-  const [obsSetupOpen, setObsSetupOpen] = useState(false);
-
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats | null>(null);
   const [statsHistory, setStatsHistory] = useState<StreamStats[]>([]);
   const currentVoiceChannelId = useCurrentVoiceChannelId();
+  const currentVoiceChannel = useCurrentVoiceChannel();
   const callAction = useCallAction();
-  const obs = useObs(obsPassword, obsEnabled);
 
   useEffect(() => {
     if (!open) {
@@ -284,11 +280,10 @@ const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { 
   );
 
   return (
-    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
-          {obsEnabled && obs.streaming ? <Radio className="h-4 w-4 text-red-500" /> : <Tv className="h-4 w-4" />}
+          <Tv className="h-4 w-4" />
           {channelSessions.length > 0 && (
             <span className="absolute top-1 right-1">
               <LiveDot size="sm" />
@@ -296,45 +291,13 @@ const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { 
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-4">
-        {obsEnabled && (
+      <PopoverContent className="w-72 p-4 flex flex-col gap-3">
+        {currentVoiceChannel && (
           <>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                {obs.status === "disconnected" ? (
-                  <Badge className="bg-muted text-muted-foreground border-border font-normal">OBS · no connection</Badge>
-                ) : obs.status === "connecting" ? (
-                  <Badge className="bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20 font-normal">
-                    <span className="h-1.5 w-1.5 rounded-full bg-yellow-500 animate-pulse shrink-0 mr-1" />
-                    OBS · connecting…
-                  </Badge>
-                ) : (
-                  <>
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
-                    OBS{obs.streaming ? " · live" : ""}
-                  </>
-                )}
-              </div>
-              {obs.status === "connected" && (
-                obs.streaming ? (
-                  <Button size="sm" variant="destructive" onClick={() => obs.stopStream()}>
-                    Stop
-                  </Button>
-                ) : obs.hasSharkordProfile ? (
-                  <Button
-                    size="sm"
-                    onClick={() => obs.goLive(`${serverUrl}/whip/${currentVoiceChannelId}`, streamKey)}
-                  >
-                    Go Live
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={() => setObsSetupOpen(true)}>
-                    Set up OBS
-                  </Button>
-                )
-              )}
-            </div>
-            <Separator className="mb-3" />
+            <Badge className="bg-muted text-muted-foreground border-border font-normal w-fit">
+              # {currentVoiceChannel.name}
+            </Badge>
+            <Separator />
           </>
         )}
         {channelSessions.length === 0 ? (
@@ -380,18 +343,11 @@ const StreamsPanel = memo(({ obsPassword, obsEnabled, serverUrl, streamKey }: { 
         )}
       </PopoverContent>
     </Popover>
-    <ObsSetupModal
-      open={obsSetupOpen}
-      onOpenChange={setObsSetupOpen}
-      serverUrl={serverUrl}
-      onSetup={(settings) => obs.setupProfile(settings)}
-    />
-    </>
   );
 });
 
 const StreamsPanelGuard = memo(() => {
-  const [clientSettings, setClientSettings] = useState<{ showStreamStats: boolean; showObsControls: boolean; obsWebsocketPassword: string; serverUrl: string; streamKey: string } | null>(null);
+  const [clientSettings, setClientSettings] = useState<{ showStreamStats: boolean } | null>(null);
   const callAction = useCallAction();
 
   useEffect(() => {
@@ -399,14 +355,7 @@ const StreamsPanelGuard = memo(() => {
   }, []);
 
   if (!clientSettings?.showStreamStats) return null;
-  return (
-    <StreamsPanel
-      obsPassword={clientSettings.obsWebsocketPassword}
-      obsEnabled={clientSettings.showObsControls}
-      serverUrl={clientSettings.serverUrl}
-      streamKey={clientSettings.streamKey}
-    />
-  );
+  return <StreamsPanel />;
 });
 
 export { StreamsPanelGuard as StreamsPanel };

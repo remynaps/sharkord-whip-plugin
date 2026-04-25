@@ -8,9 +8,15 @@ export type ObsVideoSettings = {
   codec: string;
 };
 
+export type ObsStreamInfo = {
+  duration: string;
+  droppedFrames: number;
+};
+
 export type ObsState = {
   status: ObsStatus;
   streaming: boolean;
+  streamInfo: ObsStreamInfo | null;
   hasSharkordProfile: boolean;
   setupProfile: (videoSettings: ObsVideoSettings) => Promise<void>;
   goLive: (whipUrl: string, streamKey: string) => Promise<void>;
@@ -34,6 +40,7 @@ async function computeAuth(password: string, salt: string, challenge: string): P
 export function useObs(password?: string, enabled = true): ObsState {
   const [status, setStatus] = useState<ObsStatus>("disconnected");
   const [streaming, setStreaming] = useState(false);
+  const [streamInfo, setStreamInfo] = useState<ObsStreamInfo | null>(null);
   const [hasSharkordProfile, setHasSharkordProfile] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const pending = useRef(new Map<string, (d: unknown) => void>());
@@ -155,6 +162,23 @@ export function useObs(password?: string, enabled = true): ObsState {
     };
   }, [enabled]);
 
+  useEffect(() => {
+    if (!streaming) { setStreamInfo(null); return; }
+    const poll = () => request("GetStreamStatus").then((res) => {
+      const data = (res as { responseData?: { outputTimecode?: string; outputSkippedFrames?: number; outputTotalFrames?: number } }).responseData;
+      if (!data) return;
+      const tc = (data.outputTimecode ?? "0:00:00.000").split(".")[0]!;
+      const [h, m, s] = tc.split(":");
+      const duration = h === "00" ? `${parseInt(m!)}:${s}` : `${parseInt(h!)}:${m}:${s}`;
+      const total = data.outputTotalFrames ?? 0;
+      const dropped = total > 0 ? ((data.outputSkippedFrames ?? 0) / total) * 100 : 0;
+      setStreamInfo({ duration, droppedFrames: dropped });
+    });
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, [streaming]);
+
   const setupProfile = async (videoSettings: ObsVideoSettings) => {
     const profileData = await fetchProfiles();
     const previousProfile = profileData?.currentProfileName ?? null;
@@ -195,6 +219,7 @@ export function useObs(password?: string, enabled = true): ObsState {
       await request("SetCurrentProfile", { profileName: previousProfile });
       await restoreReady;
     }
+    await fetchProfiles();
   };
 
   const goLive = async (whipUrl: string, streamKey: string) => {
@@ -228,6 +253,7 @@ export function useObs(password?: string, enabled = true): ObsState {
   return {
     status,
     streaming,
+    streamInfo,
     hasSharkordProfile,
     setupProfile,
     goLive,
