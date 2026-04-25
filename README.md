@@ -67,14 +67,14 @@ sudo ethtool -K docker0 tx-checksumming off
 | --- | --- | --- |
 | WHIP Port | Port for the HTTP signaling server | `8088` |
 | Stream Key | Bearer token OBS sends for auth | `changeme` |
-| Server URL | Base URL OBS can reach this server at (e.g. `http://192.168.1.10:8088`). Used when auto-configuring OBS. | `http://localhost:8088` |
 | RTP Min Port | Start of media port range, must match Docker `-p` | `40000` |
 | RTP Max Port | End of media port range, must match Docker `-p` | `40020` |
 | Max Concurrent Streams | Max simultaneous OBS streams. 0 = unlimited | `5` |
 | Stream Name | Default stream name shown in the channel | `OBS Stream` |
-| Show OBS controls | Show the Go Live button in the Sharkord topbar | `false` |
-| OBS WebSocket password | Password for OBS WebSocket (port 4455). Leave empty if auth is disabled in OBS. | _(empty)_ |
 | Show stream stats panel | Show the stream stats button in the topbar while in a voice channel | `false` |
+| Show OBS controls | Show the Go Live button in the Sharkord topbar | `false` |
+| Server URL | Base URL OBS can reach this server at (e.g. `http://192.168.1.10:8088`). Used when auto-configuring OBS. | `http://localhost:8088` |
+| OBS WebSocket password | Password for OBS WebSocket (port 4455). Leave empty if auth is disabled in OBS. | _(empty)_ |
 
 ### 5. OBS setup
 

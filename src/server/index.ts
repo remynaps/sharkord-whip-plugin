@@ -105,18 +105,18 @@ const onLoad = async (ctx: PluginContext) => {
       defaultValue: "",
     },
     {
+      key: "show_stream_stats",
+      name: "Show stream stats panel",
+      description: "Show the stream stats button in the top bar while in a voice channel.",
+      type: "boolean",
+      defaultValue: false,
+    },
+    {
       key: "show_obs_controls",
       name: "Show OBS controls",
       description: "Show OBS connection status and Go Live button in the stream panel.",
       type: "boolean",
       defaultValue: false,
-    },
-    {
-      key: "obs_websocket_password",
-      name: "OBS WebSocket password",
-      description: "Password for OBS WebSocket (port 4455). Leave empty if authentication is disabled in OBS.",
-      type: "string",
-      defaultValue: "",
     },
     {
       key: "server_url",
@@ -126,11 +126,11 @@ const onLoad = async (ctx: PluginContext) => {
       defaultValue: "http://localhost:8088",
     },
     {
-      key: "show_stream_stats",
-      name: "Show stream stats panel",
-      description: "Show the stream stats button in the top bar while in a voice channel.",
-      type: "boolean",
-      defaultValue: false,
+      key: "obs_websocket_password",
+      name: "OBS WebSocket password",
+      description: "Password for OBS WebSocket (port 4455). Leave empty if authentication is disabled in OBS.",
+      type: "string",
+      defaultValue: "",
     },
   ] as const);
 
